@@ -4631,6 +4631,32 @@ chk('🔴 前端：自动备份有多个触发点（启动 / 回前台 / 秒级�
 chk('🔴 前端：strm 心跳**必须自己处理** localSrcAdded（一次性标记，读了就得负责）',
   /async function strmWatchTick\(\)[\s\S]{0,700}?localSrcAdded[\s\S]{0,150}?loadLibrary\(true\)/.test(appCode),
   '心跳消费了这个标记又不重扫 = 定时任务生成的新 .strm 永远进不了片库');
+/* ===================================================================================
+ *  「清空本机 strm 库」+「删除云端备份」（2026-09-22 用户要求）
+ * ===================================================================================
+ *  ⚠️ 只清本机是**没用的**：账号里存着备份包，下次同步会自动拉回来。
+ *     所以做成两个各司其职的按钮：本机清本机、云端清云端，都不越界。
+ * =================================================================================== */
+const syncSrvCode = stripComments(read('sync-server.js'));
+chk('🔴 清空本机 strm 库：后端要有 /api/strm/clear，且**连增量索引一起清**',
+  /path\.equals\("\/api\/strm\/clear"\)/.test(njCode)
+  && /private Resp handleStrmClear\(/.test(njCode)
+  && /mf\.isFile\(\)\) mf\.delete\(\);/.test(njCode),
+  '索引不清 = 下一轮全部 skipped，文件再也生成不出来了（比不清空还糟）');
+chk('🔴 清空本机后**不许**把空备份推上账号',
+  /if \(r && r\.rev != null\) \{ SY\.strmRev = Number\(r\.rev\); SY\.save\(\); \}/.test(appCode),
+  '把本机记录跟到新版本号，让心跳判定「没变过」；否则等于顺手把云端那份也清了');
+chk('🔴 同步服务端要有 DELETE /api/sync/strm（不然云端那份删不掉）',
+  /req\.method === 'DELETE'/.test(syncSrvCode)
+  && /fs\.unlinkSync\(f\)/.test(syncSrvCode));
+chk('🔴 两个删除都用**两步确认**，不许用原生 confirm()',
+  !/\bconfirm\s*\(/.test(appCode)
+  && /classList\.add\('armed'\)/.test(appCode)
+  && /strmClearArm|syncStrmDelArm/.test(appCode),
+  'WebView 没实现 onJsConfirm，confirm() 会**静默返回取消** —— 点了没反应比没按钮还糟');
+chk('🔴 「武装态」要有通用按钮样式（原来只有监控清单的 ✕ 有）',
+  /\.btn\.armed\{/.test(cssCode),
+  '文字变成「确认？」但按钮还是灰的 = 用户以为第一下就生效了');
 chk('🔴 前端：头像 / 名字改完要跟点赞收藏一样自动同步',
   /function commitName\(\)[\s\S]{0,1400}?syncTouch\(\)/.test(appCode)
   && /LS\.set\('avatar', data\);[\s\S]{0,400}?syncTouch\(\)/.test(appCode),

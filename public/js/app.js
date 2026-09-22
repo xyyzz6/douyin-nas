@@ -3901,6 +3901,54 @@ $('cfStrmBkFile').addEventListener('change', async () => {
   }
 });
 
+/* ---- 清空本机 strm 库（2026-09-22 用户要求）----
+ *
+ * 🔴 两步确认，跟「停止监控」那套一致：**不能**用原生 confirm() ——
+ *    WebView 没实现 onJsConfirm，它会**静默返回取消**（点了没反应比没这个按钮还糟）。
+ *
+ * ⚠️ 只删本机（.strm + 增量索引 + 摘掉 `local:/` 片源），**账号里的备份包一个字节都不动**
+ *    —— 那是别的设备换机恢复用的，本按钮不该碰。
+ *    所以清完**必须把本机记录的版本号跟到新值**：让心跳判定成「没变过」，
+ *    不去触发自动备份。否则会把一个**空备份**推上去，等于顺手把云端那份也清了。
+ */
+let strmClearArm = 0;
+function strmClearDisarm() {
+  clearTimeout(strmClearArm);
+  strmClearArm = 0;
+  const b = $('cfStrmClear');
+  if (b) { b.classList.remove('armed'); b.textContent = '清空本机 strm 库'; }
+}
+$('cfStrmClear')?.addEventListener('click', async () => {
+  const b = $('cfStrmClear');
+  if (!b) return;
+  if (b.classList.contains('armed')) {
+    strmClearDisarm();
+    try {
+      showLoading(true, '正在清空…');
+      const r = await api.strmClear();
+      /* 跟到新版本号 → 心跳判定「没变过」→ 不会把空备份推上账号 */
+      if (r && r.rev != null) { SY.strmRev = Number(r.rev); SY.save(); }
+      await loadLibrary(true);
+      refreshStrmStatus();
+      toast(`已清空 ${(r && r.files) || 0} 个 .strm`, 3200);
+      if (SY.loggedIn()) {
+        toast('注意：账号里的备份还在，下次同步会自动恢复 —— 想彻底清除请点「删除云端备份」', 5000);
+      }
+    } catch (e) {
+      toast('清空失败：' + friendlyNetErr(e.message), 3600);
+    } finally {
+      showLoading(false);
+    }
+    return;
+  }
+  const n = (S.allVideos || []).filter((v) => String(v && v.p).indexOf('local:') === 0).length;
+  strmClearDisarm();
+  b.classList.add('armed');
+  b.textContent = n ? `确认删 ${n} 个？` : '确认清空？';
+  toast('再点一次才真清空（只删本机，不动账号备份）', 3200);
+  strmClearArm = setTimeout(strmClearDisarm, 4000);
+});
+
 /* =====================================================================================
  *  多设备同步（账号系统）—— 2026-09-20 用户需求
  * =====================================================================================
@@ -4424,6 +4472,8 @@ function syncRender() {
   if (up) up.disabled = !SY.loggedIn();
   const dn = $('cfSyncDown');
   if (dn) dn.disabled = !SY.loggedIn();
+  const sd = $('cfSyncStrmDel');
+  if (sd) sd.disabled = !SY.loggedIn();
   /* 🔴 别覆盖「刚刚那次操作的结果」：登录/注册流程末尾也会调 syncRender，
      它会把「同步失败：xxx」当场冲成「还没同步过」—— 用户永远看不到失败原因，
      只能看到「点了没反应」（真机上就是这么把自己坑了一次）。
@@ -4487,6 +4537,46 @@ $('cfSyncRegister')?.addEventListener('click', () => syncAuth(true));
 $('cfSyncNow')?.addEventListener('click', () => syncNow(true));
 $('cfSyncUp')?.addEventListener('click', syncUploadStrm);
 $('cfSyncDown')?.addEventListener('click', () => syncPullStrm(true));
+/* ---- 删除云端 strm 备份（2026-09-22）----
+ *
+ * 🔴 同样是两步确认（原生 confirm() 在 WebView 里会静默返回取消，见 sjDisarm 的注释）。
+ *
+ * ⚠️ 这个动作会影响**别的设备**以后换机恢复的能力，所以：
+ *    · 按钮上写明「只删账号里那份，本机文件不受影响」；
+ *    · 删完把本机的 strmRev 记下来 —— 这样心跳不会立刻又把本机那份传上去
+ *      （否则等于「删了又瞬间传回来」，用户看着像没删掉）。
+ */
+let syncStrmDelArm = 0;
+function syncStrmDelDisarm() {
+  clearTimeout(syncStrmDelArm);
+  syncStrmDelArm = 0;
+  const b = $('cfSyncStrmDel');
+  if (b) { b.classList.remove('armed'); b.textContent = '删除云端备份'; }
+}
+$('cfSyncStrmDel')?.addEventListener('click', async () => {
+  const b = $('cfSyncStrmDel');
+  if (!b) return;
+  if (!SY.loggedIn()) return toast('先填服务器地址并登录账号');
+  if (b.classList.contains('armed')) {
+    syncStrmDelDisarm();
+    try {
+      await syncFetch('/api/sync/strm', { method: 'DELETE' });
+      /* 记下当前版本号：避免心跳判定「本机比云端新」→ 立刻又传一份回去 */
+      try { SY.strmRev = await strmRevNow(); SY.save(); } catch (_) {}
+      syncStatus('已删除账号里的 strm 备份（本机文件未动）', true);
+      toast('已删除云端备份', 3200);
+    } catch (e) {
+      syncStatus('删除失败：' + e.message, false);
+      toast('删除失败：' + e.message, 3600);
+    }
+    return;
+  }
+  syncStrmDelDisarm();
+  b.classList.add('armed');
+  b.textContent = '确认删除？';
+  toast('再点一次才真删 —— 这会影响别的设备以后换机恢复', 3600);
+  syncStrmDelArm = setTimeout(syncStrmDelDisarm, 4000);
+});
 $('cfSyncAuto')?.addEventListener('change', (e) => {
   SY.auto = !!e.target.checked;
   SY.save();

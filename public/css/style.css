@@ -1571,6 +1571,15 @@ label.cf-dir.strm-job{cursor:pointer;-webkit-tap-highlight-color:transparent;}
 }
 .cf-dir.strm-job .sj-del.armed:active{background:var(--brand);color:#fff;}
 
+/* 通用版「武装态」（2026-09-22）：上面那条只管监控清单里的 ✕，
+   「清空本机 strm 库」「删除云端备份」这两个按钮也走两步确认，需要同一套视觉。
+   ⚠️ 不能只改文字不改外观 —— 文字变成「确认？」但按钮还是灰的，
+   用户会以为第一下就已经生效了（或者以为按钮坏了）。 */
+.btn.armed{
+  background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600;
+}
+.btn.armed:active{filter:brightness(.92);background:var(--brand);color:#fff;}
+
 /* ---- 目录选择器（第 4 步「＋ 添加文件夹」打开的弹层）---- */
 .dp-bar{display:flex;gap:9px;margin:10px 0;}
 .dp-bar .btn{flex:1;}

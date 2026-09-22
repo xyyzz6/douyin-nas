@@ -459,6 +459,12 @@
         <div class="cf-status" id="cfStrmStatus" hidden></div>
         <div class="pick-hint">增量处理，只重建新增/变动的；首轮全量稍慢。</div>
 
+        <!-- 清空本机 strm 库（2026-09-22 用户要求） -->
+        <div class="row2">
+          <button class="btn ghost" id="cfStrmClear" type="button">清空本机 strm 库</button>
+        </div>
+        <div class="pick-hint">删掉本机全部 .strm（App 私有目录里那个固定文件夹）和增量索引，并把它从片源里摘掉。<b>只动本机，不动账号里的备份</b> —— 所以登录着同步账号的话，下次同步会自动把它们恢复回来；想彻底清除，配合「多设备同步」里的<b>删除云端备份</b>一起用。</div>
+
         <!-- 备份 / 换机（2026-09-20 用户要素）：导出 = 打包成 zip 存到「下载」；
              导入 = 系统文件选择器挑 zip，按「合并补缺」解回本机。
              ⚠️ 导入为什么走 <input type=file> 而不是原生桥：WebView 的
@@ -528,7 +534,10 @@
         <button class="btn ghost" id="cfSyncUp" type="button">上传到账号</button>
         <button class="btn ghost" id="cfSyncDown" type="button">从账号恢复</button>
       </div>
-      <div class="pick-hint" id="cfSyncNote">.strm 是设备上的本地文件，不跟着账号自动走 —— 用「上传到账号」把当前这台打好的包装进账号，换新设备登录后会自动拉下来恢复。</div>
+      <div class="row2">
+        <button class="btn ghost" id="cfSyncStrmDel" type="button">删除云端备份</button>
+      </div>
+      <div class="pick-hint" id="cfSyncNote">.strm 是设备上的本地文件，不跟着账号自动走 —— 用「上传到账号」把当前这台打好的包装进账号，换新设备登录后会自动拉下来恢复。<b>「删除云端备份」只删账号里那份包</b>（本机文件不受影响），但它会影响<b>别的设备</b>以后换机恢复的能力，所以会先让你确认。</div>
     </div>
   </section>
 

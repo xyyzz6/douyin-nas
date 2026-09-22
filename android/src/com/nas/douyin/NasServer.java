@@ -778,6 +778,8 @@ public final class NasServer {
             return handleStrmBackup();
         } else if (path.equals("/api/strm/restore")) {
             return handleStrmRestore(req);
+        } else if (path.equals("/api/strm/clear")) {
+            return handleStrmClear(req.method);
         } else {
             return json(404, err("unknown api: " + path));
         }
@@ -2983,6 +2985,67 @@ public final class NasServer {
             }
         }
         return 0;
+    }
+
+    /**
+     * POST /api/strm/clear —— **清空本机 strm 库**（2026-09-22 用户要求）。
+     *
+     * 只删本机这个固定目录（strmLocalDir）里的 .strm + 增量索引；
+     * **账号里的备份包一个字节都不动** —— 那是别的设备换机恢复用的，本按钮不该碰它。
+     *
+     * ⚠️ 前端那句提示必须说清「登录着同步账号的话，下次同步会再拉回来」：
+     *    只清本机、不动云端，效果就是「删了 → 同步又恢复」，用户会当成 bug 报回来。
+     *    想彻底清除，得配合「删除云端备份」那个按钮一起用（两者各司其职）。
+     */
+    private Resp handleStrmClear(String method) {
+        if (!"POST".equals(method)) return json(405, err("use POST"));
+        int files = deleteStrmTree(new File(strmLocalDir()), true);
+        /* 🔴 索引必须一起清：留着的话下一轮生成会以为「全都写过了」→ 全部 skipped，
+           文件一个都回来（用户看到的就是「清空之后再也生成不出来了」）。 */
+        try {
+            File mf = strmManifestFile();
+            if (mf.isFile()) mf.delete();
+        } catch (Throwable ignore) {}
+        /* 库变了（少了 N 个）→ 版本号 +1。前端靠它判断「要不要重传备份」。 */
+        strmRev++;
+        strmTouchRev();
+        /* 本机片源里那条 `local:/` 也摘掉：目录都空了，留着它片源栏会显示一个 0 视频的源。
+           ⚠️ 同步可能会把它加回来（账号的片源清单里还有）—— 那是另一回事，
+              这里只负责让**本机此刻**的状态自洽。 */
+        boolean srcRemoved = dirs.remove(LOCAL_PREFIX + "/");
+        if (srcRemoved) {
+            if (dir != null && (LOCAL_PREFIX + "/").equals(dir)) dir = dirs.isEmpty() ? "" : dirs.get(0);
+            persistConfig();
+        }
+        JSONObject o = new JSONObject();
+        try {
+            o.put("ok", true);
+            o.put("files", files);
+            o.put("srcRemoved", srcRemoved);
+            o.put("rev", strmRev);
+        } catch (Exception ignore) {}
+        Log.i(TAG, "清空本机 strm 库：删除 " + files + " 个文件");
+        return json(200, o);
+    }
+
+    /**
+     * 递归删掉 dir 下所有 .strm，空掉的**子目录**顺手清掉（isRoot 那个留着 ——
+     * 它是固定目录，别的逻辑会假设它存在）。返回删除的文件数。
+     */
+    private static int deleteStrmTree(File dir, boolean isRoot) {
+        File[] fs = dir.listFiles();
+        if (fs == null) return 0;
+        int n = 0;
+        for (File f : fs) {
+            if (f.isDirectory()) n += deleteStrmTree(f, false);
+            else if (f.getName().endsWith(".strm")) {
+                try { if (f.delete()) n++; } catch (Throwable ignore) {}
+            }
+        }
+        if (!isRoot) {
+            try { dir.delete(); } catch (Throwable ignore) {}     // 只有空目录才删得掉
+        }
+        return n;
     }
 
     /**

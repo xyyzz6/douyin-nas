@@ -221,7 +221,7 @@ function send(res, code, obj) {
     /* 🔴 CORS 只给这些接口开（它们有 token 鉴权）。别把通配 CORS 加到没有鉴权的接口上。 */
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Max-Age': '86400',
   });
   res.end(buf);
@@ -409,6 +409,21 @@ const server = http.createServer(async (req, res) => {
         fs.renameSync(tmp, f);
         log(`${auth.user} 上传 strm 备份：${(buf.length / 1024 / 1024).toFixed(2)} MB`);
         return send(res, 200, { ok: true, bytes: buf.length });
+      }
+      /* DELETE = **删掉云端这份备份**（2026-09-22 加）。
+       *
+       * 为什么需要它：有了「上传/下载」还不够 —— 用户想彻底清掉 strm 库时，
+       * 只删本机是没用的（下次同步会自动拉回来），必须连云端这份一起删。
+       * ⚠️ 这个动作会影响**别的设备**的换机恢复能力，所以 App 那边必须有确认。 */
+      if (req.method === 'DELETE') {
+        try {
+          if (!fs.existsSync(f)) return send(res, 404, { ok: false, error: '账号里还没有 strm 备份' });
+          fs.unlinkSync(f);
+          log(`${auth.user} 删除云端 strm 备份`);
+          return send(res, 200, { ok: true });
+        } catch (e2) {
+          return send(res, 500, { ok: false, error: '删除失败：' + (e2 && e2.message) });
+        }
       }
     }
 

@@ -90,6 +90,13 @@ export const api = {
    * ⚠️ body 就是 zip 的**字节**，不能走 jpost —— 那个会 JSON.stringify 把二进制毁掉。
    * ⚠️ Content-Type 也别写 application/json，否则后端会先按 JSON 解析一遍（无害但误导）。
    */
+  /**
+   * 清空本机 strm 库（2026-09-22）：删掉本机所有 .strm + 增量索引，并摘掉 `local:/` 片源。
+   * ⚠️ **只动本机**，账号里的备份包不动 —— 那是另一台设备换机恢复用的。
+   * 返回 { files, srcRemoved, rev }。
+   */
+  strmClear: () => jpost('/api/strm/clear', {}),
+
   strmRestore: async (file) => {
     const r = await fetch('/api/strm/restore', {
       method: 'POST',
