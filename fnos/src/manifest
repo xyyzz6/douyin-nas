@@ -1,5 +1,5 @@
 appname=nasdouyin
-version=1.3.18
+version=1.3.35
 display_name=NAS 短视频
 desc=<p>把 NAS 里的片子，刷成抖音的样子。</p><p>手机/平板/电脑浏览器打开就能用，支持点赞、收藏、评论、片源管理，以及点赞收藏与 strm 文件的多设备同步。</p><p>需要你填一个 WebDAV 地址（115 网盘、Alist、群晖等都可以）。</p>
 platform=x86
