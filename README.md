@@ -2,12 +2,26 @@
 
 把 NAS 里的片子，刷成抖音的样子。
 
-手机、平板、电脑浏览器打开就能用，不需要装 App、不需要给 NAS 装任何插件。
+手机、平板、电脑浏览器打开就能用，不需要给 NAS 装任何插件。
 **零第三方依赖**，只用 Node 原生模块。
 
-```
-双击 start.bat  →  浏览器自动打开 http://localhost:8080
-```
+**两种装法**
+
+| 用法 | 怎么开始 |
+|---|---|
+| 🖥 **浏览器**（电脑 / 手机 / 平板都行） | 双击 `start.bat`，浏览器自动打开 `http://localhost:8080` |
+| 📱 **安卓 App** | 去 [**Releases**](https://github.com/xyyzz6/douyin-nas/releases) 下 APK，**不用自己编译** |
+
+> 安卓包分了两个 ABI，**装错会提示「应用未安装」**：
+>
+> | 文件名 | 给谁 | 体积 |
+> |---|---|---|
+> | `douyin-nas-arm64.apk` | **真机**（2017 年后的安卓手机基本都是 arm64） | ~27 MB |
+> | `douyin-nas-x86_64.apk` | **模拟器**（MuMu / 雷电 / AVD 等） | ~29 MB |
+>
+> 不确定自己是哪种：`adb shell getprop ro.product.cpu.abi`，回 `arm64-v8a` 就下第一个。
+> 两个包用同一个调试密钥签名，所以能互相覆盖安装；从别处装的包要先卸载再装。
+> 想自己编译看第七节（需要 JDK 17 + Android SDK）。
 
 接 NAS 只有一种方式：**WebDAV**。填一次地址和账号密码，之后在应用里**逐层点目录**，
 点哪层就刷哪层 —— 换文件夹不用再改配置。
@@ -771,11 +785,19 @@ node android/build.js --clean                        # 先清空 build/ 再打
 
 ### 怎么装
 
+**不想自己编译**：直接去 [**Releases**](https://github.com/xyyzz6/douyin-nas/releases) 下现成的包
+（`arm64` 给真机、`x86_64` 给模拟器，见开头那张表）。
+
+自己打出来的包在 `android/dist/`，两个 ABI 分开发布，**文件名带 ABI 就是提醒别装错**：
+
 ```bash
-adb install -r douyin-nas.apk
+adb install -r android/dist/douyin-nas-arm64.apk      # 真机
+adb install -r android/dist/douyin-nas-x86_64.apk     # 模拟器
 ```
 
-或者把 `douyin-nas.apk` 拷到手机上点一下安装（需要在系统里允许「安装未知来源应用」）。
+> 装错 ABI 的表现是 **「应用未安装 / App not installed」** —— 包本身没问题，是这台设备装不了。
+
+或者把 apk 拷到手机上点一下安装（需要在系统里允许「安装未知来源应用」）。
 
 装完打开就是全屏的刷视频界面，没有地址栏、没有浏览器的各种按钮。
 
