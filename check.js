@@ -4628,6 +4628,31 @@ chk('🔴 前端：自动备份有三个触发点（启动 / 回前台 / 定时�
   && /setInterval\(\(\) => \{ if \(!document\.hidden\) syncPushStrmIfStale\(\); \}/.test(appCode)
   && /await syncPushStrmIfStale\(s2\.rev\);/.test(appCode),
   '少一段就会出现「某种情况下永远不备份」');
+/* ===================================================================================
+ *  🔴「模拟器上登录之后无法恢复数据」（2026-09-22 用户报）
+ * ===================================================================================
+ *  现象：strm 回填了几千个（/api/library 里有 5275 条），首页却写着「没有演示视频」。
+ *
+ *  真因两处叠在一起：
+ *   1. `S.demoMode` 按「有没有 WebDAV 地址」判。换新机登录后同步会把**片源清单**
+ *      恢复回来（含 `local:/`），但**不恢复**地址/账号密码（凭据不同步是既定设计）
+ *      → mode 仍是 demo → loadLibrary 去取 `/api/demo`（**空数组**）而不是真片库。
+ *   2. 恢复完没有重扫片库 —— `syncPullStrm` 里只在 `dirsAdded` 非空时才 applySources，
+ *      而 `local:/` 早被 strmBackupRead 的兜底注册进 dirs 了 → 命中不了 → 不重扫。
+ * =================================================================================== */
+chk('🔴 前端：「是不是演示模式」必须按**有没有片源**判，不能只看 mode',
+  /function hasAnySource\(\)/.test(appCode)
+  && /S\.demoMode = S\.mode === 'demo' && !hasAnySource\(\);/.test(appCode)
+  && !/S\.demoMode = S\.mode === 'demo';/.test(appCode),
+  '只看 mode = 有片源但没 WebDAV 地址时取 /api/demo 空数组，登录了也看不到数据');
+chk('🔴 前端：hasAnySource 要把**已加的片源目录**算进去（含本机 strm 的 local:/）',
+  /function hasAnySource\(\)\s*\{[\s\S]{0,300}?S\.dirs/.test(appCode)
+  && /function hasAnySource\(\)\s*\{[\s\S]{0,300}?S\.config\.dirs/.test(appCode));
+chk('🔴 前端：恢复完 .strm 必须重扫片库 —— dirsAdded 为空时也不能跳过',
+  /\} else \{[\s\S]{0,300}?refreshDemoMode\(\);\s*\n\s*await loadLibrary\(true\);/.test(appCode),
+  'local:/ 常在 dirs 里（dirsAdded 为空）→ 不重扫 = 文件回填了、首页还是空的');
+chk('🔴 前端：同步应用完片源后要重判演示模式（刚退出 demo 就得重扫一次）',
+  /if \(refreshDemoMode\(\)\) await loadLibrary\(true\);/.test(appCode));
 const pushFnCode = (appCode.match(/async function syncPushStrmIfStale\([\s\S]*?\n\}/) || [''])[0];
 chk('🔴 前端：rev 为 0（还没生成过任何 strm）时**不许上传**',
   /if \(!Number\(rev\)\) return false;/.test(pushFnCode),

@@ -3264,6 +3264,35 @@ function renderEmptyError(lib) {
     '如果只是之前挂的文件夹失效了，去 <b>设置</b> 页重新<b>登录</b>，再挑一个新的文件夹就行。';
 }
 
+/**
+ * 这台设备有没有**任何**片源。
+ *
+ * 🔴 不能只看「有没有 WebDAV 地址」—— 本机 strm 库（`local:/`）也是真片源。
+ */
+function hasAnySource() {
+  if (S.config && S.config.url) return true;
+  return (Array.isArray(S.dirs) && S.dirs.length > 0)
+    || (Array.isArray(S.config && S.config.dirs) && S.config.dirs.length > 0);
+}
+
+/**
+ * 重新判定「是不是演示模式」。
+ *
+ * 🔴 判据是**有没有片源**，不是「有没有 WebDAV 地址」。2026-09-22 修：
+ *    换新机登录后，同步会把「片源清单」恢复回来（含 `local:/` 这种本机 strm 源），
+ *    但**不恢复** WebDAV 地址和账号密码（凭据不同步是既定设计）。
+ *    于是 `mode` 仍算 demo → `loadLibrary` 就去取 `/api/demo`（**空数组**）
+ *    而不是真片库，用户看到的是「strm 回填了几千个、首页却写着『没有演示视频』」。
+ *
+ * @returns {boolean} 这次**刚刚关掉**了演示模式（调用方通常要据此重扫一次片库）
+ */
+function refreshDemoMode() {
+  const now = S.mode === 'demo' && !hasAnySource();
+  const justOff = S.demoMode && !now;
+  S.demoMode = now;
+  return justOff;
+}
+
 async function loadLibrary(refresh) {
   showLoading(true, refresh ? '正在扫描 NAS 目录…' : '正在读取视频列表…');
   $('emptyView').hidden = true;
@@ -3833,6 +3862,11 @@ $('cfStrmBkFile').addEventListener('change', async () => {
        ⚠️ 必须在拼提示文案之前调，这样 toast 里能带上「片源补了几个」。 */
     if (jb.dirs && (jb.dirsAdded || []).length) {
       await applySources(jb.dirs.slice(), null);
+    } else {
+      /* 同 syncPullStrm：本机片源 local:/ 常常早就在 dirs 里了 → dirsAdded 为空，
+         但文件是刚导进来的，片库必须重扫，否则导完首页还是空的。 */
+      refreshDemoMode();
+      await loadLibrary(true);
     }
     const parts = [`回填 ${fi.added || 0} 个 .strm`];
     if (fi.skipped) parts.push(`跳过已有的 ${fi.skipped} 个`);
@@ -4165,6 +4199,10 @@ async function syncApply(data) {
     S.config = { ...S.config, strmMinSizeMB: mv };
     api.saveConfig({ strmMinSizeMB: mv }).catch(() => {});
   }
+  /* 同步可能刚把「片源清单」恢复回来（含本机 strm 源 local:/）→ 退出演示模式。
+     这时本次启动那趟 loadLibrary 取的是 /api/demo（空壳），必须重扫一次，
+     否则用户看到的是「登录成功了、首页还是空的」。 */
+  if (refreshDemoMode()) await loadLibrary(true);
   refreshBadges();
   forAllFeeds((f) => f.refreshItem && f.refreshItem(null));
   return dirty;
@@ -4242,7 +4280,18 @@ async function syncPullStrm(manual, info) {
     const fi = r.files || {};
     const jb = r.jobs || {};
     if (jb.now) { S.config = { ...S.config, strmJobs: jb.now.slice() }; renderStrmJobs(); }
-    if (jb.dirs && (jb.dirsAdded || []).length) await applySources(jb.dirs.slice(), null);
+    if (jb.dirs && (jb.dirsAdded || []).length) {
+      await applySources(jb.dirs.slice(), null);
+    } else {
+      /* 🔴 恢复了 .strm 就必须重扫片库，**不能只在 dirsAdded 有东西时才扫**。
+         本机片源 `local:/` 往往**早就已经在** dirs 里了（strmBackupRead 的兜底就会
+         注册它），于是 dirsAdded 为空、整个这一步被跳过 —— 用户看到的就是
+         「登录了、回填了几千个 .strm、首页却什么都没有」（2026-09-22 用户报）。
+         先把演示模式按「有没有片源」重判一次（退掉 demo，loadLibrary 才会取真片库），
+         再重扫。 */
+      refreshDemoMode();
+      await loadLibrary(true);
+    }
     const parts = [`回填 ${fi.added || 0} 个 .strm`];
     if (fi.skipped) parts.push(`跳过已有的 ${fi.skipped} 个`);
     if ((jb.dirsAdded || []).length) parts.push(`片源补 ${jb.dirsAdded.length} 个`);
@@ -4918,7 +4967,11 @@ document.addEventListener('visibilitychange', () => {
     // 启动时并没有真连过服务器 —— 上面这条 currentDir 只是「磁盘上存的」，不算验证过。
     S.verifiedDir = '';
     S.dirs = Array.isArray(S.config.dirs) ? S.config.dirs : [];
-    S.demoMode = S.mode === 'demo';
+    /* 🔴 有片源就不算演示模式 —— 判据必须用 hasAnySource()，不能只看 mode。
+       换新机登录同步后，本机拿回了「片源清单」（含 local:/），但拿不回 WebDAV
+       地址和账号密码（凭据不同步），mode 依然是 demo。照 mode 判的话
+       loadLibrary 会去取 /api/demo（空数组），用户就是「数据恢复了、首页却空的」。 */
+    S.demoMode = S.mode === 'demo' && !hasAnySource();
     /* 两步流程的登录态：有地址 + （存过密码 或 本来就有片源）就算「已登录」。
      * 不在启动时真去连一次 —— 那样每次开 App 都得多等一个网络往返，
      * 而且 NAS 不在线时会把已经配好的用户直接挡在门外。 */
