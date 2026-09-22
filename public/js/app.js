@@ -1717,7 +1717,9 @@ function renderMePage() {
   if (S.demoMode) {
     lines.push('当前：演示模式（还没连 NAS）');
   } else {
-    lines.push(`数据源：WebDAV ${escapeHtml(originOf(S.config.url))}`);
+    /* 「紧凑版」（2026-09-23，用户报真机字体放大后这四行各折成两行）：
+       每行都要在系统字体缩放 1.3× 下仍放得下 —— 长话短说，别加字。 */
+    lines.push(`数据源：WebDAV ${escapeHtml(originOf(S.config.url).replace(/^http:\/\//, ''))}`);
     /* 🔴 读 `S.dirs` 而不是 `S.config.dirs`（2026-09-20 修的 bug）。
      *
      * 现象：用户在「文件夹」页把片源全删了，那里显示「还没添加」，
@@ -1730,10 +1732,12 @@ function renderMePage() {
      * 本页原来读的是后者，于是拿到一份陈旧配置；而「文件夹」页读的是前者。
      * 两处必须统一 —— 现在统一到 `S.dirs`（它才是「现在实际在刷什么」的真相）。 */
     const dirs = S.dirs || [];
-    lines.push(`片源 ${dirs.length} 个文件夹：` +
-      (dirs.length ? dirs.map((d) => escapeHtml(srcLabel(d))).join('、') : '还没添加'));
+    lines.push(dirs.length
+      ? `片源 ${dirs.length} 个：` + dirs.map((d) => escapeHtml(srcLabel(d))).join('、')
+      : '片源：还没添加');
   }
-  lines.push(`片库：${S.videos.length} 个视频 · ${scanTimeText()}`);
+  /* 片库条数就是上面第三个大数字（statVid），这里别再念一遍 —— 只说扫描时间。 */
+  lines.push(`片库：${scanTimeText()}`);
   $('meSrc').innerHTML = lines.join('<br>');
   renderMeVersion();
   renderMeList();
@@ -1769,8 +1773,8 @@ async function renderThumbLine() {
   try {
     const r = await api.thumbStats();
     const mb = (r.bytes || 0) / 1048576;
-    el.textContent = `缩略图已存 ${r.cached || 0} 张 · ${mb < 0.1 ? (r.bytes / 1024).toFixed(0) + ' KB' : mb.toFixed(1) + ' MB'}` +
-      '（存在手机本地，重启不用重抽）';
+    el.textContent = `缩略图 ${r.cached || 0} 张 · ${mb < 0.1 ? (r.bytes / 1024).toFixed(0) + ' KB' : mb.toFixed(1) + ' MB'}` +
+      ' · 存本机，重启免重抽';
   } catch (_) { el.textContent = ''; }
 }
 
@@ -2916,14 +2920,19 @@ function updateBadge() {
   b.textContent = '';
 }
 
-/** 片库是什么时候扫的 / 什么时候会自动重扫 */
+/** 片库是什么时候扫的 / 什么时候会自动重扫（宽度紧张：日期用相对说法、后缀能短则短） */
 function scanTimeText() {
   if (!S.scannedAt) return '还没扫过';
   const d = new Date(S.scannedAt);
   const p = (x) => String(x).padStart(2, '0');
-  const at = `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const sameDay = (a, b) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const now = new Date();
+  const yest = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const day = sameDay(d, now) ? '今天' : (sameDay(d, yest) ? '昨天' : `${d.getMonth() + 1}月${d.getDate()}日`);
+  const at = `${day} ${p(d.getHours())}:${p(d.getMinutes())}`;
   const hours = Math.max(0, Math.round((Date.now() - S.scannedAt) / 3600000));
-  return hours >= 24 ? `${at} 扫的（打开时自动更新）` : `${at} 扫的 · ${24 - hours} 小时后自动重扫`;
+  return hours >= 24 ? `${at} 扫的（打开时更新）` : `${at} 扫的 · ${24 - hours}小时后重扫`;
 }
 
 /** 把一份 library 结果灌进界面 */

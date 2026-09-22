@@ -411,7 +411,8 @@ chk('peek 只在变了时带整份数据', /changed,\s*\n/.test(srv) && /\.\.\.\
 chk('api.libPeek 已定义', /^\s{2}libPeek: \(v\)/m.test(api));
 chk('前端后台扫完自动换新列表', /function watchLibraryRefresh/.test(app) && /api\.libPeek\(v\)/.test(app));
 chk('列表没变则不重建 DOM（不跳条）', /refreshList\(next\) \{/.test(app) && /main\.refreshList\(main\.list\.map/.test(app));
-chk('「我的」页显示扫描/重扫时间', /function scanTimeText/.test(app) && /小时后自动重扫/.test(app));
+chk('「我的」页显示扫描/重扫时间（紧凑文案，2026-09-23）',
+  /function scanTimeText/.test(app) && /小时后重扫/.test(app) && /打开时更新/.test(app));
 
 
 console.log('\n · 片库缓存落盘：APK 重启不再重扫（NasServer.java）');
