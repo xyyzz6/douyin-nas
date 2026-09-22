@@ -1808,6 +1808,10 @@ $('avatarFile').addEventListener('change', () => {
       LS.set('avatar', data);
       renderMePage();
       toast('头像已更新', 1800);
+      /* 和点赞/收藏同一条路：改完打一个防抖，几秒后自动推给账号。
+         （2026-09-22 用户要求：头像名字要跟点赞收藏一样自动同步。）
+         头像本身也在 syncPayload 的 profile 里（带 hash 比对，只有真改过才带）。 */
+      syncTouch();
     } catch (e) {
       toast('头像处理失败：' + e.message, 2600);
     } finally {
@@ -1842,6 +1846,10 @@ function commitName() {
     if (r && r.config) S.config = r.config;
     renderMePage();
     toast('名字已更新', 1800);
+    /* 和点赞/收藏同一条路：改完打一个防抖，几秒后自动推给账号（2026-09-22 用户要求）。
+       ⚠️ 必须放在 saveConfig **成功之后** —— 没存上就同步，推上去的是还没落盘的值，
+       重启后本机读回旧名字，反而看起来像「同步把名字改回去了」。 */
+    syncTouch();
   }).catch((e) => toast('没存上：' + e.message, 2600));
 }
 $('nameEdit').addEventListener('blur', commitName);
@@ -3918,7 +3926,7 @@ const SY = {
   url: '', user: '', token: '', auto: true, lastAt: 0, snap: null, busy: false,
   /* 自动备份 strm 的防重入标志。**故意跟 busy 分开** —— busy 是「点赞收藏同步」的锁，
      两者共用的话，一次自动备份会把用户刚点的点赞挡在同步之外。 */
-  strmPushing: false,
+  strmPushing: false, strmPushNextAt: 0,
   /* 已备份到账号的「strm 库内容版本」（后端 /api/strmjob 的 rev）。
      🔴 2026-09-22 加：用户报「手机新生成的 strm 不会自动备份」——
      真因是上传那一侧压根没有自动触发点。有了这个值，前端就能判断
@@ -4359,6 +4367,9 @@ async function syncUploadStrm() {
  */
 async function syncPushStrmIfStale(knownRev) {
   if (!SY.auto || !SY.loggedIn() || SY.busy || SY.strmPushing) return false;
+  /* 失败后歇 1 分钟再试 —— 现在是 10 秒一轮的心跳，不退避的话
+     同步服务器一挂就变成每 10 秒撞一次（且每次都是失败）。 */
+  if (SY.strmPushNextAt && Date.now() < SY.strmPushNextAt) return false;
   let rev = knownRev;
   if (rev == null) {
     try { rev = await strmRevNow(); } catch (_) { return false; }   // 本机服务没起来，等下一轮
@@ -4374,13 +4385,15 @@ async function syncPushStrmIfStale(knownRev) {
   try {
     const { mb } = await syncUploadStrmCore();
     SY.strmRev = Number(rev);
+    SY.strmPushNextAt = 0;
     SY.save();
     syncStatus(`已自动备份 strm（${mb} MB）`, true);
     toast(`已自动备份 strm（${mb} MB）`, 2600);
     return true;
   } catch (e) {
-    /* 失败**故意不弹 toast**：这条是定时轮询的，弹出来就成了反复骚扰。
-       只更新状态行（在设置页里能看到），而且**不推进 strmRev** → 下一轮继续重试。 */
+    /* 失败**故意不弹 toast**：这条是心跳轮询的，弹出来就成了反复骚扰。
+       只更新状态行（在设置页里能看到），而且**不推进 strmRev** → 下轮继续重试。 */
+    SY.strmPushNextAt = Date.now() + 60000;
     syncStatus('strm 自动备份失败：' + e.message, false);
     return false;
   } finally {
@@ -4511,17 +4524,30 @@ function syncBoot() {
   }, 1500);
 }
 
-/* ---- strm 备份的自动推送：兜住「App 一直开着」的时间窗 ----
+/* ---- strm 心跳（2026-09-22 用户要求：strm 备份要跟点赞收藏一样，几秒钟就自动推上去）----
  *
- * 三处触发各覆盖一段，缺一段就会有漏：
- *   · 启动时                       → App 关着的时候任务跑完了
- *   · 回到前台（visibilitychange） → 后台挂太久、定时器被系统冻结过
- *   · 5 分钟轮询（下面这个）        → App 一直开着，任务就在这期间跑完了
- * 三者都是「先读版本号、变了才传」，所以重复触发不会重复上传。 */
-const STRM_PUSH_MS = 5 * 60 * 1000;
-setInterval(() => { if (!document.hidden) syncPushStrmIfStale(); }, STRM_PUSH_MS);
+ * 🔴 为什么只能轮询：定时任务跑在**后端**（NasServer.java），而它**没有任何通知页面的
+ *    通道**（没有 evaluateJavascript / 回调接口），页面拿不到「刚跑完一轮」这个事件。
+ *    所以只能由前端去问 —— 问的是本机 127.0.0.1，只读几个计数器，开销可以忽略。
+ *
+ * ⚠️ 心跳会**消费** `localSrcAdded`（它是「读取即清除」的一次性标记）：后端把本机 strm
+ *    目录自动加进片源时置起它。既然是心跳先读到了，就必须**由心跳自己把重扫做掉**，
+ *    否则那批新 .strm 永远进不了片库（原来只有「点过立即生成」那条轮询会处理它）。
+ */
+const STRM_TICK_MS = 10 * 1000;
+async function strmWatchTick() {
+  if (document.hidden) return;                          // 后台别白跑
+  if (!SY.auto || !SY.loggedIn()) return;
+  let st;
+  try { st = await api.strmJob(false); } catch (_) { return; }
+  if (st && st.localSrcAdded) {
+    try { await loadLibrary(true); } catch (_) {}
+  }
+  await syncPushStrmIfStale(st && st.rev);
+}
+setInterval(strmWatchTick, STRM_TICK_MS);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) syncPushStrmIfStale();
+  if (!document.hidden) strmWatchTick();
 });
 
 /* ------------------------- 目录选择器（复用 /api/browse） -------------------------

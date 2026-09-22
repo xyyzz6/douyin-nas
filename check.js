@@ -4621,13 +4621,23 @@ chk('🔴 前端：strm 库变过就**自动**把备份推上账号',
   && /if \(Number\(rev\) === SY\.strmRev\) return false;/.test(appCode)
   && /SY\.strmRev = Number\(rev\);/.test(appCode),
   '上传侧没有自动触发点 = 用户生成完的 .strm 永远躺在本机');
-chk('🔴 前端：自动备份有三个触发点（启动 / 回前台 / 定时轮询），缺一段就有漏',
+chk('🔴 前端：自动备份有多个触发点（启动 / 回前台 / 秒级心跳），缺一段就有漏',
   /* ⚠️ appCode 是**剥过注释**的（stripComments），所以这里不能把注释写进正则。 */
   /await syncNow\(false\);\s*\n\s*await syncPushStrmIfStale\(\);/.test(appCode)
-  && /addEventListener\('visibilitychange'[\s\S]{0,150}?syncPushStrmIfStale\(\)/.test(appCode)
-  && /setInterval\(\(\) => \{ if \(!document\.hidden\) syncPushStrmIfStale\(\); \}/.test(appCode)
+  && /addEventListener\('visibilitychange'[\s\S]{0,150}?strmWatchTick\(\)/.test(appCode)
+  && /setInterval\(strmWatchTick, STRM_TICK_MS\);/.test(appCode)
   && /await syncPushStrmIfStale\(s2\.rev\);/.test(appCode),
   '少一段就会出现「某种情况下永远不备份」');
+chk('🔴 前端：strm 心跳**必须自己处理** localSrcAdded（一次性标记，读了就得负责）',
+  /async function strmWatchTick\(\)[\s\S]{0,700}?localSrcAdded[\s\S]{0,150}?loadLibrary\(true\)/.test(appCode),
+  '心跳消费了这个标记又不重扫 = 定时任务生成的新 .strm 永远进不了片库');
+chk('🔴 前端：头像 / 名字改完要跟点赞收藏一样自动同步',
+  /function commitName\(\)[\s\S]{0,1400}?syncTouch\(\)/.test(appCode)
+  && /LS\.set\('avatar', data\);[\s\S]{0,400}?syncTouch\(\)/.test(appCode),
+  '改完不 syncTouch = 改动躺在本机，得等下次别的同步才顺带带上去');
+chk('🔴 前端：strm 自动备份失败要有退避（心跳是秒级的，不退避会一直撞）',
+  /if \(SY\.strmPushNextAt && Date\.now\(\) < SY\.strmPushNextAt\) return false;/.test(appCode)
+  && /SY\.strmPushNextAt = Date\.now\(\) \+ 60000;/.test(appCode));
 /* ===================================================================================
  *  🔴「模拟器上登录之后无法恢复数据」（2026-09-22 用户报）
  * ===================================================================================
