@@ -1848,9 +1848,15 @@ public final class NasServer {
                             Log.w(TAG, "本机片源路径非法，跳过 " + root);
                             continue;
                         }
+                        /* 本机 strm 根目录**固定全量递归**，不吃 recursive / maxDepth：
+                           落点结构是 <strm根>/<监控目录名>/<源内相对路径>.strm，比源树
+                           整体多一层 —— 同一个深度在「生成侧的 WebDAV 扫描」与「这里的
+                           片库扫描」并不等价，深度 4 时最深处一层全部扫不到且不报错
+                           （2026-09-23 实测：换机恢复 5271 个 .strm，片库只显示 2176）。
+                           这个目录是 App 自己写的，层数可控，没有跟着用户扫描设置缩小的道理。 */
                         list = NasService.scanLocal(new java.io.File(disk), LOCAL_PREFIX,
                                 new java.io.File(strmLocalDir()).getAbsolutePath(),
-                                recursive, maxDepth, scanTruncated);
+                                true, 0, scanTruncated);
                     } else {
                         list = NasService.scan(dav, root, recursive, maxDepth, scanTruncated);
                     }

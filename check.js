@@ -1468,6 +1468,16 @@ chk('🔴 doScan 对本机片源走 scanLocal，不送进 PROPFIND',
   /if \(isLocalSrc\(root\)\) \{/.test(njCode)
   && /NasService\.scanLocal\(new java\.io\.File\(disk\), LOCAL_PREFIX,/.test(njCode));
 
+/* 🔴🔴 钉的是**那次调用的实参**：本机 strm 源的片库扫描固定 true, 0（全量递归）。
+ *    落点 = <strm根>/<监控目录名>/<源内相对路径>.strm，比源树多一层，
+ *    同一个 maxDepth 在生成侧（WebDAV）与片库侧并不等价 —— 曾把换机恢复的
+ *    5271 个静默截成 2176（2026-09-23）。改回 recursive, maxDepth 必须变红。 */
+chk('🔴🔴 本机 strm 源的片库扫描固定全量递归（true, 0），不吃 recursive/maxDepth',
+  (() => {
+    const m = njCode.match(/NasService\.scanLocal\(new java\.io\.File\(disk\), LOCAL_PREFIX,[\s\S]*?scanTruncated\);/);
+    return !!m && m[0].indexOf('true, 0, scanTruncated') >= 0;
+  })());
+
 chk('🔴🔴 扫描总闸不能是 dav != null（只配了本机片源的用户也要能刷出 strm）',
   /boolean needDav = !isLocalSrc\(root\);/.test(njCode)
   && /if \(needDav && dav == null\) \{/.test(njCode)
