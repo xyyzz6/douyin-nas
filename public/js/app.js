@@ -3850,6 +3850,10 @@ $('cfStrmBkFile').addEventListener('change', async () => {
     toast('导入完成：' + parts.join(' · '), 5000);
     const el = $('cfStrmBkNote');
     if (el) el.textContent = '上次导入：' + parts.join(' · ') + '（已存在的文件不覆盖）';
+    /* 这份备份是从**本地文件**导进来的（不是从账号拉的），库确实变了 →
+       顺手推一份到账号，否则「本机导好了」和「账号里是新的」是两件事。
+       ⚠️ 这里**不能**像 syncPullStrm 那样把 r.rev 记成「已备份」—— 那样就永远不推了。 */
+    await syncPushStrmIfStale();
   } catch (e) {
     toast('导入失败：' + friendlyNetErr(e.message), 4200);
   }
@@ -3878,6 +3882,15 @@ $('cfStrmBkFile').addEventListener('change', async () => {
 const SYNC_LS = 'sync';
 const SY = {
   url: '', user: '', token: '', auto: true, lastAt: 0, snap: null, busy: false,
+  /* 自动备份 strm 的防重入标志。**故意跟 busy 分开** —— busy 是「点赞收藏同步」的锁，
+     两者共用的话，一次自动备份会把用户刚点的点赞挡在同步之外。 */
+  strmPushing: false,
+  /* 已备份到账号的「strm 库内容版本」（后端 /api/strmjob 的 rev）。
+     🔴 2026-09-22 加：用户报「手机新生成的 strm 不会自动备份」——
+     真因是上传那一侧压根没有自动触发点。有了这个值，前端就能判断
+     「库自上次上传以来变过没有」，变了才自动重传（见 syncPushStrmIfStale）。
+     值得存盘：不存的话每次开 App 都以为「没备份过」，会白传一遍几 MB 的备份。 */
+  strmRev: -1,
   load() {
     const o = LS.get(SYNC_LS, null) || {};
     SY.url = String(o.url || '').replace(/\/+$/, '');
@@ -3886,13 +3899,16 @@ const SY = {
     SY.auto = o.auto !== false;
     SY.lastAt = Number(o.lastAt || 0);
     SY.snap = o.snap || null;
+    /* ⚠️ 缺省 -1 而不是 0：0 是后端合法版本号（还没生成过任何 strm），
+       拿 0 当「没记录」会让「刷过一轮但一条都没新增」也被判成变过。 */
+    SY.strmRev = o.strmRev == null ? -1 : Number(o.strmRev);
   },
   save() {
     /* ⚠️ token **故意不进** strm 备份包：换设备本来就该重新登录一次，
        把凭据塞进那个要到处传的 zip 里等于随手散钥匙（和「备份不含账号密码」同一条原则）。 */
     LS.set(SYNC_LS, {
       url: SY.url, user: SY.user, token: SY.token,
-      auto: SY.auto, lastAt: SY.lastAt, snap: SY.snap,
+      auto: SY.auto, lastAt: SY.lastAt, snap: SY.snap, strmRev: SY.strmRev,
     });
   },
   loggedIn() { return !!(SY.url && SY.token); },
@@ -4219,6 +4235,10 @@ async function syncPullStrm(manual, info) {
     showLoading(true, '正在从账号恢复 strm…');
     const blob = await syncFetch('/api/sync/strm', { binary: true });
     const r = await api.strmRestore(blob);
+    /* 🔴 刚拉下来的这份内容，立即记成「已备份到这一版」。
+       不记的话，紧接着的自动备份会判定「库变了」→ 把我们刚下载的东西原样传回账号。
+       （后端 strmBackupRead 每导入一次都会 ++rev 并回报，所以只能用它回传的值。） */
+    if (r.rev != null) { SY.strmRev = Number(r.rev); SY.save(); }
     const fi = r.files || {};
     const jb = r.jobs || {};
     if (jb.now) { S.config = { ...S.config, strmJobs: jb.now.slice() }; renderStrmJobs(); }
@@ -4238,16 +4258,32 @@ async function syncPullStrm(manual, info) {
   }
 }
 
-/** 把这台设备打好的 strm 上传到账号（换新机时那边会自动拉下去） */
+/** 读一次本机 strm 任务状态里的「库内容版本」（本机同源，很便宜） */
+async function strmRevNow() {
+  const st = await api.strmJob(false);
+  return Number(st && st.rev != null ? st.rev : 0);
+}
+
+/**
+ * 打包本机 strm 库 → 上传到账号。**完全不碰 UI** —— 手动按钮和自动备份共用它。
+ * 失败一律抛异常，由两个调用方各自决定怎么报。
+ */
+async function syncUploadStrmCore() {
+  const r = await fetch('/api/strm/backup');            // 本机（同源）
+  if (!r.ok) throw new Error('打包失败 HTTP ' + r.status);
+  const blob = await r.blob();
+  const up = await syncFetch('/api/sync/strm', { method: 'PUT', raw: blob, ctype: 'application/zip' });
+  return { mb: ((up.bytes || blob.size) / 1024 / 1024).toFixed(2) };
+}
+
+/** 手动按钮：有全屏 loading，成功失败都弹 toast（用户主动点的，就该有回声） */
 async function syncUploadStrm() {
   if (!SY.loggedIn()) return toast('先填服务器地址并登录账号');
   try {
     showLoading(true, '正在打包并上传…');
-    const r = await fetch('/api/strm/backup');            // 本机（同源）
-    if (!r.ok) throw new Error('打包失败 HTTP ' + r.status);
-    const blob = await r.blob();
-    const up = await syncFetch('/api/sync/strm', { method: 'PUT', raw: blob, ctype: 'application/zip' });
-    const mb = ((up.bytes || blob.size) / 1024 / 1024).toFixed(2);
+    const { mb } = await syncUploadStrmCore();
+    /* 手动传完也要更新「已备份到哪一版」，否则自动那条路会以为还没备份、紧接着再传一次 */
+    try { SY.strmRev = await strmRevNow(); SY.save(); } catch (_) {}
     syncStatus(`已上传 strm 备份（${mb} MB），换设备登录后会自动恢复`, true);
     toast(`已上传 strm 备份（${mb} MB）`, 3200);
   } catch (e) {
@@ -4255,6 +4291,51 @@ async function syncUploadStrm() {
     toast('上传失败：' + e.message, 3600);
   } finally {
     showLoading(false);
+  }
+}
+
+/**
+ * 🔴 **自动**把 strm 备份推上账号 —— 「本机库变过没有」说了算。
+ *
+ * 2026-09-22 修：用户报「手机新生成的 strm 不会自动备份到服务器」。
+ * 真因是**这一侧压根没有自动触发点**：全前端只有设置页那个按钮会传，
+ * 而 `syncNow()`（点赞收藏改动后自动跑的那个）只**拉**strm 包、从不推。
+ * 于是定时任务每跑一轮，手机上多出来的 .strm 就一直躺在本机。
+ *
+ * 判据用后端的 `rev`（库内容版本）而不是 `lastRunAt`：
+ * 一轮「全是增量命中、一个文件都没动」也会让 lastRunAt 变，
+ * 拿它当信号会变成每轮白传一份几 MB 的备份。
+ *
+ * @param {number} [knownRev] 调用方刚拿到的版本号（省一次请求）
+ */
+async function syncPushStrmIfStale(knownRev) {
+  if (!SY.auto || !SY.loggedIn() || SY.busy || SY.strmPushing) return false;
+  let rev = knownRev;
+  if (rev == null) {
+    try { rev = await strmRevNow(); } catch (_) { return false; }   // 本机服务没起来，等下一轮
+  }
+  /* rev === 0 = 这台设备从来没生成过 .strm → 没什么可备份的，直接跳过。
+     🔴 这条不是省事，是**防数据损坏**：不加的话，新装的 App 启动时
+     （本机记的是「未知」-1、后端是 0）两者不等 → 会传一个**空备份**上去，
+     把账号里那份真的盖掉。「库被清空」这种合法情形走的是 rev>0（删除会 +1），
+     所以这里跳过 0 不会漏掉任何该备份的变更。 */
+  if (!Number(rev)) return false;
+  if (Number(rev) === SY.strmRev) return false;                     // 没变过 → 什么都不做
+  SY.strmPushing = true;
+  try {
+    const { mb } = await syncUploadStrmCore();
+    SY.strmRev = Number(rev);
+    SY.save();
+    syncStatus(`已自动备份 strm（${mb} MB）`, true);
+    toast(`已自动备份 strm（${mb} MB）`, 2600);
+    return true;
+  } catch (e) {
+    /* 失败**故意不弹 toast**：这条是定时轮询的，弹出来就成了反复骚扰。
+       只更新状态行（在设置页里能看到），而且**不推进 strmRev** → 下一轮继续重试。 */
+    syncStatus('strm 自动备份失败：' + e.message, false);
+    return false;
+  } finally {
+    SY.strmPushing = false;
   }
 }
 
@@ -4348,6 +4429,9 @@ $('cfSyncAuto')?.addEventListener('change', (e) => {
   SY.auto = !!e.target.checked;
   SY.save();
   toast(SY.auto ? '已打开自动同步' : '已关闭自动同步（仍可手动点「立即同步」）');
+  /* 刚打开自动同步 → 立刻判一次本机 strm 库要不要备份。
+     不然得等 5 分钟轮询，用户会以为开关没生效。 */
+  if (SY.auto) syncPushStrmIfStale();
 });
 $('cfSyncOut')?.addEventListener('click', async () => {
   /* 退出只清本机凭据，**不动**账号里的数据 —— 那可能是别的设备正在用的。 */
@@ -4366,8 +4450,30 @@ $('cfSyncUrl')?.addEventListener('change', (e) => {
 /** 启动时：登录过就静默同步一次（没网 / NAS 没开都很正常，失败不打扰用户） */
 function syncBoot() {
   syncRender();
-  if (SY.auto && SY.loggedIn()) setTimeout(() => syncNow(false), 1500);
+  if (!SY.auto || !SY.loggedIn()) return;
+  setTimeout(async () => {
+    /* 顺序要紧：先做常规同步（里面可能包含「本机没库 → 从账号拉 strm 包」），
+       再判断要不要把本机的推上去。反过来的话，换新机第一次登录会
+       「先传一个空库上去、再把自己刚传的拉回来」，白白清掉账号里的备份。 */
+    await syncNow(false);
+    /* 定时 strm 任务是**后端**跑的，App 关着的时候它照样会跑完一轮 ——
+       所以启动时必须补一次「库变过没有」，这正是用户报的那个场景。 */
+    await syncPushStrmIfStale();
+  }, 1500);
 }
+
+/* ---- strm 备份的自动推送：兜住「App 一直开着」的时间窗 ----
+ *
+ * 三处触发各覆盖一段，缺一段就会有漏：
+ *   · 启动时                       → App 关着的时候任务跑完了
+ *   · 回到前台（visibilitychange） → 后台挂太久、定时器被系统冻结过
+ *   · 5 分钟轮询（下面这个）        → App 一直开着，任务就在这期间跑完了
+ * 三者都是「先读版本号、变了才传」，所以重复触发不会重复上传。 */
+const STRM_PUSH_MS = 5 * 60 * 1000;
+setInterval(() => { if (!document.hidden) syncPushStrmIfStale(); }, STRM_PUSH_MS);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) syncPushStrmIfStale();
+});
 
 /* ------------------------- 目录选择器（复用 /api/browse） -------------------------
  *
@@ -4561,6 +4667,10 @@ $('cfStrmRun').addEventListener('click', async () => {
             await loadLibrary(true);
             setNav('home');
           }
+          /* 这一轮真的改动过库 → 顺手把备份推上账号（2026-09-22 用户报
+             「手机新生成的 strm 不会自动备份到服务器」）。传 s2.rev 省掉一次状态请求；
+             没登录、或用户关了自动同步时，这个函数会自己直接返回。 */
+          await syncPushStrmIfStale(s2.rev);
         }
       } catch (e) { clearInterval(strmPollTimer); strmPollTimer = null; }
     }, 2000);

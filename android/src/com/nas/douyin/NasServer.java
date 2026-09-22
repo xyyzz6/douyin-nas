@@ -140,6 +140,23 @@ public final class NasServer {
     private volatile String strmLastError = "";
     /** 最近一轮完成时间。落 SharedPreferences（strmTouchLastRun），供冷启动过期补偿判断 */
     private volatile long strmLastRun = 0;
+    /**
+     * strm 库的**内容版本**：真的写了 .strm、或按体积阈值删掉了旧条目，就 +1。
+     *
+     * 🔴 2026-09-22 加。起因：用户报「手机新生成的 strm 不会自动备份到服务器」。
+     *    真因是**上传那一侧压根没有自动触发点**（只绑在设置页那个按钮上），
+     *    这个计数器的作用是给前端一个**精确的**「库变过没有」判断依据，
+     *    让「生成完就自动传一份备份」这件事有据可依。
+     *
+     * ⚠️ 为什么不用 lastRunAt 判断：一轮跑完时间戳一定会变，**即使一个文件都没动**
+     *    （全增量命中），拿它当信号会导致每轮都白传一遍几 MB 的备份。
+     *    也不能只看 added：按阈值**删除**时 added 是 0，但库确实变了。
+     *    所以只在实际改动落盘的两处 +1。
+     *
+     * 必须落盘（同 strmLastRun）：App 重启后归 0 的话，前端存的旧值对不上，
+     * 会误判成「变过了」白传一次。
+     */
+    private volatile long strmRev = 0;
     /** 单线程调度器：定时扫 strm。interval 变更时 cancel 旧任务重排（strmTimer） */
     private final java.util.concurrent.ScheduledExecutorService strmSched =
             java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
@@ -416,6 +433,7 @@ public final class NasServer {
         strmIntervalH = p.getInt("strmIntervalH", 0);
         strmMinSizeMB = Math.max(0, p.getInt("strmMinSizeMB", 0));   // 体积阈值（2026-09-22）
         strmLastRun = p.getLong("strmLastRun", 0);
+        strmRev = p.getLong("strmRev", 0);                           // 库内容版本（2026-09-22）
         rebuildDav();
         // 配置就位后把上次扫好的片库读回来 —— 必须放在 rebuildDav() / dirs 之后，
         // 因为 libSig() 要拿这些字段做签名比对。
@@ -2827,6 +2845,7 @@ public final class NasServer {
                             try { new java.io.File(old).delete(); } catch (Throwable ignore) {}
                         }
                         manifest.remove(p);          // 落点没了，索引也得跟着删，否则永远不再重算
+                        strmRev++;                   // 库真的变了（少了一条）→ 备份该重传
                     }
                     continue;
                 }
@@ -2853,6 +2872,7 @@ public final class NasServer {
                        不当场吞掉的话 javac 直接编译失败（build 抓到过） */
                     try { manifest.put(p, sig); } catch (Exception ignore) {}
                     strmAdded++;
+                    strmRev++;                    // 真写了一个文件 → 库变了，备份该重传
                 } else {
                     strmFailed++;
                     if (strmLastError.isEmpty()) {
@@ -2878,6 +2898,9 @@ public final class NasServer {
             strmRunning.set(false);
             strmLastRun = System.currentTimeMillis();
             strmTouchLastRun();
+            /* 库版本号也在这里落盘（同 strmTouchLastRun 的理由：不是配置变更）。
+               前端就是靠它判断「这轮有没有真的改动过」→ 变了才自动重传备份。 */
+            strmTouchRev();
         }
     }
 
@@ -3071,6 +3094,19 @@ public final class NasServer {
         try {
             ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit().putLong("strmLastRun", strmLastRun).apply();
+        } catch (Throwable ignore) {}
+    }
+
+    /**
+     * 把 strm 库的内容版本落盘（同 strmTouchLastRun 的理由：不是配置变更，不该走 persistConfig）。
+     *
+     * ⚠️ 为什么**不**在每次自增时立刻写：一轮里可能写几千个 .strm，那就是几千次
+     *    SharedPreferences 写入。只在任务收尾写一次就够了 —— 前端只在任务跑完才看版本号。
+     */
+    private void strmTouchRev() {
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit().putLong("strmRev", strmRev).apply();
         } catch (Throwable ignore) {}
     }
 
@@ -3331,6 +3367,7 @@ public final class NasServer {
                 try { os.write(data); } catch (Throwable t) { try { os.close(); } catch (Throwable ignore) {} throw t; }
                 os.close();
                 added++;
+                strmRev++;                       // 导入也是「库变了」→ 该让前端重传备份
             }
             bytes += data.length;
             z.closeEntry();
@@ -3349,7 +3386,7 @@ public final class NasServer {
                     String k = it.next();
                     if (!cur.has(k)) { cur.put(k, inc.opt(k)); addedM++; }
                 }
-                if (addedM > 0) strmManifestSave(cur);
+                if (addedM > 0) { strmManifestSave(cur); strmRev++; }
                 mres.put("added", addedM);
                 mres.put("had", before);
                 mres.put("now", cur.length());
@@ -3481,6 +3518,12 @@ public final class NasServer {
         o.put("jobs", jobs);
         o.put("localDir", strmLocalDir());
         o.put("meta", meta == null ? JSONObject.NULL : meta);
+        /* 导入也算「库变了」→ 把版本号递增并落盘，顺手回报给前端。
+           前端拿到新值就直接记为「已备份」，省掉一次 /api/strmjob 往返；
+           不这么做的话，从账号拉完备份会立刻被自己判定成「库变了」再传一遍。 */
+        strmRev++;
+        strmTouchRev();
+        o.put("rev", strmRev);
         return o;
     }
 
@@ -3578,6 +3621,11 @@ public final class NasServer {
             o.put("minSkipped", strmTooSmall);
             o.put("failed", strmFailed);
             o.put("lastRunAt", strmLastRun);
+            /* strm 库的内容版本（2026-09-22）。前端拿它跟本地记的值比：
+               不一样就说明库变过 → 自动把备份重传到同步账号。
+               ⚠️ 别用 lastRunAt 代替 —— 全增量命中的一轮也会让它变，
+                  那样每轮都要白传一遍备份。 */
+            o.put("rev", strmRev);
             o.put("lastError", strmLastError);
             // 过期未扫：定时开着且距上次完成已超过一个周期（前端拿它提示「该扫了」）
             o.put("stale", strmIntervalH > 0 && strmLastRun > 0

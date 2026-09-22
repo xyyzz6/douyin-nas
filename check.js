@@ -3122,7 +3122,7 @@ chk('🔴 写失败不记 manifest → 下轮重试（不再是「两路任一�
   /String werr = strmWriteLocal\(localPath, body\);/.test(njCode)
   && /if \(werr == null\) \{/.test(njCode)
   && /try \{ manifest\.put\(p, sig\); \} catch \(Exception ignore\) \{\}/.test(njCode)
-  && /strmAdded\+\+;\n\s+\} else \{\n\s+strmFailed\+\+;/.test(njCode));
+  && /strmAdded\+\+;\s*\n\s*strmRev\+\+;[\s\S]{0,60}?\} else \{\s*\n\s*strmFailed\+\+;/.test(njCode));
 chk('🔴 失败原因要带到前端（只说「写入失败」没法定位 —— 超长文件名那次就栽在这）',
   /strmLastError = "写入失败 " \+ localPath \+ "（" \+ werr \+ "）";/.test(njCode)
   && /private String strmWriteLocal\(String localPath, byte\[\] body\)/.test(njCode)
@@ -4604,7 +4604,59 @@ chk('前端：点赞/收藏改完会安排一次防抖同步',
   && /function toggleFav\(id\) \{[\s\S]{0,400}?syncTouch\(\)/.test(appCode)
   && /let syncPushTimer = 0;/.test(appCode));
 chk('前端：启动时静默同步一次（失败不打扰 —— 没网/NAS 没开都很正常）',
-  /function syncBoot\(\) \{[\s\S]{0,200}?if \(SY\.auto && SY\.loggedIn\(\)\) setTimeout\(\(\) => syncNow\(false\), 1500\);/.test(appCode));
+  /function syncBoot\(\) \{[\s\S]{0,300}?if \(!SY\.auto \|\| !SY\.loggedIn\(\)\) return;/.test(appCode)
+  && /function syncBoot\(\) \{[\s\S]{0,900}?await syncNow\(false\);/.test(appCode));
+/* ===================================================================================
+ *  🔴「手机新生成的 strm 不会自动备份到服务器」（2026-09-22 用户报）
+ * ===================================================================================
+ *  真因：上传那一侧**压根没有自动触发点** —— `syncUploadStrm()` 全前端只绑在
+ *  设置页那个「上传」按钮上（`$('cfSyncUp')`），而 `syncNow()`（点赞收藏改动后
+ *  自动跑、启动时也跑）只**拉** strm 包、从不推。于是定时任务每跑一轮，
+ *  手机上多出来的 .strm 就一直躺在本机，除非用户自己想起来点那个按钮。
+ *
+ *  下面的断言盯的就是这条链路，别再让它退回去。
+ * =================================================================================== */
+chk('🔴 前端：strm 库变过就**自动**把备份推上账号',
+  /async function syncPushStrmIfStale\(/.test(appCode)
+  && /if \(Number\(rev\) === SY\.strmRev\) return false;/.test(appCode)
+  && /SY\.strmRev = Number\(rev\);/.test(appCode),
+  '上传侧没有自动触发点 = 用户生成完的 .strm 永远躺在本机');
+chk('🔴 前端：自动备份有三个触发点（启动 / 回前台 / 定时轮询），缺一段就有漏',
+  /* ⚠️ appCode 是**剥过注释**的（stripComments），所以这里不能把注释写进正则。 */
+  /await syncNow\(false\);\s*\n\s*await syncPushStrmIfStale\(\);/.test(appCode)
+  && /addEventListener\('visibilitychange'[\s\S]{0,150}?syncPushStrmIfStale\(\)/.test(appCode)
+  && /setInterval\(\(\) => \{ if \(!document\.hidden\) syncPushStrmIfStale\(\); \}/.test(appCode)
+  && /await syncPushStrmIfStale\(s2\.rev\);/.test(appCode),
+  '少一段就会出现「某种情况下永远不备份」');
+const pushFnCode = (appCode.match(/async function syncPushStrmIfStale\([\s\S]*?\n\}/) || [''])[0];
+chk('🔴 前端：rev 为 0（还没生成过任何 strm）时**不许上传**',
+  /if \(!Number\(rev\)\) return false;/.test(pushFnCode),
+  '新装 App 启动时会用**空备份**盖掉账号里那份真的（实测踩到：启动+生成各传一次）');
+chk('🔴 前端：自动备份**必须静默**（不能走 showLoading —— 会挡住正刷视频的人）',
+  pushFnCode.length > 0 && !/showLoading/.test(pushFnCode),
+  '自动路径弹全屏 loading');
+/* 成功弹 toast 是**要的**（用户得知道备份成了），失败才必须闭嘴 ——
+   失败也弹的话，配上 5 分钟轮询就成了每 5 分钟骚扰一次。 */
+const pushCatch = (pushFnCode.match(/catch \(e\) \{[\s\S]*/) || [''])[0];
+chk('🔴 前端：自动备份**失败**不弹 toast 且不推进 strmRev（要能重试、还别反复骚扰）',
+  /strm 自动备份失败/.test(pushCatch) && !/toast\(/.test(pushCatch) && /return false;/.test(pushCatch),
+  '失败弹 toast + 定时轮询 = 每 5 分钟骚扰一次');
+chk('🔴 前端：从账号拉回来的 strm 要**立刻记成已备份**（否则紧接着原样传回去）',
+  /if \(r\.rev != null\) \{ SY\.strmRev = Number\(r\.rev\); SY\.save\(\); \}/.test(appCode),
+  '拉完再推 = 白传一遍几 MB');
+chk('🔴 后端：库内容版本 strmRev 在「写入 / 按阈值删除 / 导入」三处都要自增',
+  /strmAdded\+\+;\s*\n\s*strmRev\+\+;/.test(njCode)          // 真写了一个 .strm
+  && /manifest\.remove\(p\);[\s\S]{0,200}?strmRev\+\+;/.test(njCode)   // 按体积阈值删掉旧条目
+  && /strmRev\+\+;\s*\n\s*strmTouchRev\(\);/.test(njCode),            // 导入备份之后
+  '漏一处 = 那种改动不会被判定成「库变了」，备份就停在旧版本');
+chk('🔴 后端：rev 必须落盘且回报（不落盘 = 每次开 App 都以为没备份过，白传一遍）',
+  /private void strmTouchRev\(\)/.test(njCode)
+  && /\.edit\(\)\.putLong\("strmRev", strmRev\)\.apply\(\);/.test(njCode)
+  && /strmRev = p\.getLong\("strmRev", 0\);/.test(njCode)
+  && /o\.put\("rev", strmRev\);/.test(njCode));
+chk('🔴 后端：判定「库变了」**不能**用 lastRunAt（全增量命中也会变 → 每轮白传）',
+  /o\.put\("rev", strmRev\);/.test(njCode)
+  && !/if \(Number\(rev\) === SY\.strmRev\)[\s\S]{0,200}?lastRunAt/.test(appCode));
 chk('前端：「退出账号」只清本机凭据，不动账号里的数据',
   /退出只清本机凭据/.test(app) && /SY\.token = ''; SY\.user = ''; SY\.lastAt = 0; SY\.snap = null;/.test(appCode));
 chk('本机：/api/state/bulk 是**整体替换**（前端手里已经是合并后的权威结果）',
