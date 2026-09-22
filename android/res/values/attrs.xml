@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  为什么这里要自己声明 resize_mode：
+  androidx.media3.ui.AspectRatioFrameLayout 在 onMeasure 里会读自定义属性 resize_mode
+  （它自己的 R$styleable），但我们**不打算把整个 media3-ui 搬进来**——
+  那个 aar 有 440KB、还拖着 recyclerview 和几十个 language 资源目录，只为一个 60 行的 View 不值当。
+  所以改成：只从 media3-ui 里抽 AspectRatioFrameLayout 那几个 class，
+  属性表在这里补上，id 必须和它内部使用的一致。
+  改了这里的 id 就得同步改 —— 轻则缩放模式失效，重则布局错乱。
+-->
+<resources>
+    <attr name="resize_mode" format="enum">
+        <enum name="fit" value="0" />
+        <enum name="fixed_width" value="1" />
+        <enum name="fixed_height" value="2" />
+        <enum name="fill" value="3" />
+        <enum name="zoom" value="4" />
+    </attr>
+</resources>

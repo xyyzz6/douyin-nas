@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>液态玻璃预览 · douyin-nas</title>
+<link rel="stylesheet" href="public/css/style.css">
+<style>
+  /* 仅预览用：把演示内容摆进手机外框，不依赖 app.js */
+  body{margin:0}
+  .demo-item{height:100%}
+  .demo-fill{position:absolute;inset:0;
+    background:
+      radial-gradient(120% 80% at 50% 0%,#243049 0%,#141826 55%,#0a0c12 100%);}
+  .demo-poster{position:absolute;inset:18% 22%;border-radius:18px;
+    background:linear-gradient(135deg,#3a2a5a,#1f3a5a 55%,#0d2233);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 30px 80px rgba(0,0,0,.5);
+    display:grid;place-items:center;color:rgba(255,255,255,.5);font-size:13px}
+  .demo-tab{display:flex;flex-direction:column;align-items:center;gap:2px;
+    color:rgba(255,255,255,.45);font-size:10.5px;font-weight:600}
+  .demo-tab.on{color:#fff}
+  .demo-tab .d{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;
+    background:rgba(255,255,255,.10);font-size:13px}
+  .demo-tab.on .d{background:linear-gradient(135deg,var(--brand),#8a1c39);
+    box-shadow:0 4px 14px rgba(254,44,85,.35),inset 0 1px 0 rgba(255,255,255,.25)}
+  .sheet{height:78%}
+  .field input{margin-top:2px}
+  .sec{margin:18px 0 10px}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone">
+
+    <!-- 顶栏 -->
+    <div class="topbar">
+      <button class="tb-icon tb-restart" title="重启">⟳</button>
+      <div class="top-title">
+        <span class="tt-name">我的片库</span>
+        <span class="tt-count">128</span>
+      </div>
+      <button class="tb-icon" title="搜索">🔍</button>
+      <button class="tb-icon" title="换一批">⇄</button>
+    </div>
+
+    <!-- 信息流（一条示例） -->
+    <div class="feed">
+      <div class="item ready demo-item">
+        <div class="demo-fill"></div>
+        <div class="demo-poster">示例视频画面<br>（磨砂面板会透出它）</div>
+        <div class="grad-top"></div>
+        <div class="grad-bottom"></div>
+
+        <div class="rail">
+          <div class="rail-item on"><div class="ic">♥</div><div class="num">1.2k</div></div>
+          <div class="rail-item fav-on"><div class="ic">★</div><div class="num">328</div></div>
+          <div class="rail-item"><div class="ic">💬</div><div class="num">96</div></div>
+          <div class="rail-item"><div class="ic">↪</div><div class="num">分享</div></div>
+        </div>
+
+        <div class="meta">
+          <div class="author">海边日记 <span class="badge strm">STRM</span></div>
+          <div class="desc">这是一条示例文案，用来展示液态玻璃风格下信息层的观感与可读性。</div>
+          <div class="finfo"><span class="fi-ic"></span><span>/storage/emulated/0/NAS/海边/clip_042.mp4</span></div>
+        </div>
+
+        <div class="progress"><div class="track"><div class="bar" style="width:42%"></div></div></div>
+      </div>
+    </div>
+
+    <!-- 蒙层 + 磨砂面板（账号与同步），演示玻璃折射 -->
+    <div class="mask"></div>
+    <section class="sheet">
+      <div class="sheet-head">
+        <span>账号与同步</span>
+        <button class="sheet-close">✕</button>
+      </div>
+      <div class="sheet-body">
+        <div class="field">
+          <span>同步服务器</span>
+          <input placeholder="http://192.168.1.10:8080">
+          <p class="hint">在 NAS 上跑本项目服务端的地址；同一 WiFi 用局域网 IP。</p>
+        </div>
+        <div class="field">
+          <span>账号</span>
+          <input placeholder="中英文、数字、_ - .">
+        </div>
+        <div class="field">
+          <span>密码</span>
+          <input type="password" placeholder="至少 4 位">
+        </div>
+        <div class="row2">
+          <button class="btn ghost">登录</button>
+          <button class="btn ghost">注册新账号</button>
+        </div>
+        <div class="cf-status ok">已登录 · boki · 上次同步 2 分钟前</div>
+        <div class="row2">
+          <button class="btn ghost">立即同步</button>
+          <button class="btn ghost">退出账号</button>
+        </div>
+        <label class="switch-row">
+          <span>自动同步<em>打开就拉一次；点赞/收藏改完几秒内自动推上去</em></span>
+          <span class="switch"><input type="checkbox" checked><i></i></span>
+        </label>
+        <div class="sec"><b>strm 备份包</b><span class="line"></span></div>
+        <div class="row2">
+          <button class="btn ghost">上传到账号</button>
+          <button class="btn ghost">从账号恢复</button>
+        </div>
+        <div class="pick-hint">.strm 是设备上的本地文件，不跟着账号自动走 —— 用「上传到账号」把当前这台打好的包装进账号，换新设备登录后会自动拉下来恢复。</div>
+      </div>
+    </section>
+
+    <!-- 底部导航 -->
+    <div class="tabbar">
+      <button class="demo-tab on"><span class="d">▦</span>首页</button>
+      <button class="demo-tab"><span class="d">📁</span>文件夹</button>
+      <button class="demo-tab"><span class="d">👤</span>我的</button>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

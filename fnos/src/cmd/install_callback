@@ -1,0 +1,37 @@
+#!/bin/bash
+# 安装完成后：建数据目录、补齐可执行位、把安装向导里的选择落成 app.conf
+#
+# 写 app.conf 而不是直接改环境变量，是因为 cmd/main 每次启动都会读它 ——
+# 这样用户在应用中心「设置」里改完（见 config_callback）也能生效。
+
+CONF="${TRIM_PKGETC}/app.conf"
+DATA_DIR="${TRIM_PKGVAR}/data"
+NODE_BIN="${TRIM_APPDEST}/server/node"
+PORT_DEFAULT=8099
+
+# 数据目录：点赞/收藏/评论、同步账号、strm 备份包都在这里，升级覆盖安装不会丢
+mkdir -p "${DATA_DIR}" 2>/dev/null
+
+# 🔴 Windows 上打的包不会带可执行位（打包工具的已知行为），这里补一次。
+#    cmd/ 下的脚本用 $0 定位自己所在目录，别硬编码路径。
+[ -f "${NODE_BIN}" ] && chmod +x "${NODE_BIN}" 2>/dev/null
+chmod +x "$(dirname "$0")"/* 2>/dev/null
+
+# 安装向导里选的「开放注册」（switch 给的是字符串 true/false）
+allow_reg="1"
+case "$(echo "${wizard_allow_register:-}" | tr 'A-Z' 'a-z')" in
+    false | 0 | no | off) allow_reg="0" ;;
+esac
+
+cat > "${CONF}" <<EOF
+# NAS 短视频 · 应用配置（安装向导生成）
+# 想改的话去飞牛应用中心的「设置」里改，会重新生成这个文件；
+# 直接改这里也行，但要重启应用才生效。
+PORT=${PORT_DEFAULT}
+SYNC_ALLOW_REGISTER=${allow_reg}
+EOF
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装初始化完成：data=${DATA_DIR} allow_register=${allow_reg}" \
+    >> "${TRIM_PKGVAR}/info.log" 2>/dev/null
+
+exit 0

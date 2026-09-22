@@ -1,0 +1,4 @@
+#!/bin/bash
+# 卸载前：停服务
+"$(dirname "$0")/main" stop >> "${TRIM_PKGVAR}/info.log" 2>&1
+exit 0

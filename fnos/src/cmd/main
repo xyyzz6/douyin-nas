@@ -1,0 +1,162 @@
+#!/bin/bash
+# NAS 短视频 —— 飞牛 fnOS 生命周期主控脚本
+#
+#   用法：main start | main stop | main status
+#
+# 退出码约定（飞牛会定期轮询 status 判断「运行中/已停止」）：
+#   status        → 0 = 运行中，3 = 未运行
+#   start / stop  → 0 = 成功，1 = 失败
+#
+# 运行时环境变量（三个都从 ${TRIM_PKGETC}/app.conf 读，见 install_callback）：
+#   PORT                 本机监听端口，必须与 manifest 的 service_port、
+#                        app/ui/config 的 port 三处保持一致（默认 8099）
+#   NAS_DATA_DIR         数据目录：点赞/收藏/评论、同步账号、strm 备份包
+#   SYNC_ALLOW_REGISTER  1 = 允许注册同步账号，0 = 关闭注册（只可登录）
+#
+# 出错信息写进 TRIM_TEMP_LOGFILE，飞牛会弹成对话框给用户看 —— 所以要短、要能照做。
+
+APP_DIR="${TRIM_APPDEST}/server"
+NODE_BIN="${APP_DIR}/node"
+ENTRY="${APP_DIR}/server.js"
+CONF="${TRIM_PKGETC}/app.conf"
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+PID_FILE="${TRIM_PKGVAR}/app.pid"
+DATA_DIR="${TRIM_PKGVAR}/data"
+
+PORT_DEFAULT=8099
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}" 2>/dev/null
+}
+
+# 飞牛会把这里的内容弹给用户，信息必须能直接照做
+fail() {
+    log_msg "ERROR: $1"
+    if [ -n "${TRIM_TEMP_LOGFILE}" ]; then
+        echo "$1" > "${TRIM_TEMP_LOGFILE}" 2>/dev/null
+    fi
+    return 1
+}
+
+read_conf() {
+    PORT_NUM="${PORT_DEFAULT}"
+    ALLOW_REG="1"
+    if [ -r "${CONF}" ]; then
+        # shellcheck disable=SC1090
+        . "${CONF}"
+        [ -n "${PORT}" ] && PORT_NUM="${PORT}"
+        [ -n "${SYNC_ALLOW_REGISTER}" ] && ALLOW_REG="${SYNC_ALLOW_REGISTER}"
+    fi
+    return 0
+}
+
+is_running() {
+    if [ -f "${PID_FILE}" ]; then
+        local pid
+        pid=$(head -n 1 "${PID_FILE}" 2>/dev/null | tr -d '[:space:]')
+        if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+            return 0
+        fi
+        rm -f "${PID_FILE}" 2>/dev/null     # 进程没了，pid 文件是陈的
+    fi
+    return 1
+}
+
+# 纯 bash 的端口探测（不依赖 nc / ss —— 飞牛上不保证有）
+port_open() {
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+
+start_process() {
+    if is_running; then
+        log_msg "已在运行，跳过启动"
+        return 0
+    fi
+    read_conf
+
+    if [ ! -f "${NODE_BIN}" ]; then
+        fail "应用文件不完整（缺少运行时），请在飞牛应用中心卸载后重新安装。"
+        return 1
+    fi
+    if [ ! -f "${ENTRY}" ]; then
+        fail "应用文件不完整（缺少 server.js），请在飞牛应用中心卸载后重新安装。"
+        return 1
+    fi
+    # Windows 上打的包可能没带可执行位，这里补一次（失败也不致命，下面会报出来）
+    [ -x "${NODE_BIN}" ] || chmod +x "${NODE_BIN}" 2>/dev/null
+
+    mkdir -p "${DATA_DIR}" 2>/dev/null
+
+    log_msg "启动：port=${PORT_NUM} data=${DATA_DIR} allow_register=${ALLOW_REG}"
+    cd "${APP_DIR}" || { fail "应用目录不存在：${APP_DIR}"; return 1; }
+
+    PORT="${PORT_NUM}" \
+    NAS_DATA_DIR="${DATA_DIR}" \
+    SYNC_ALLOW_REGISTER="${ALLOW_REG}" \
+    nohup "${NODE_BIN}" "${ENTRY}" >> "${LOG_FILE}" 2>&1 &
+    printf '%s' "$!" > "${PID_FILE}"
+
+    # 等端口真的起来 —— 这一步能区分「进程崩了」和「起来了但没监听」
+    local i
+    for i in $(seq 1 30); do
+        if port_open "${PORT_NUM}"; then
+            log_msg "启动成功（pid=$(cat "${PID_FILE}" 2>/dev/null)）"
+            return 0
+        fi
+        is_running || break
+        sleep 0.5
+    done
+
+    if ! is_running; then
+        rm -f "${PID_FILE}" 2>/dev/null
+        fail "启动失败：端口 ${PORT_NUM} 可能已被别的程序占用。请改端口或在应用中心查看日志（${LOG_FILE}）。"
+    else
+        fail "服务进程已启动，但端口 ${PORT_NUM} 没有响应。请查看日志：${LOG_FILE}"
+    fi
+    return 1
+}
+
+stop_process() {
+    if ! is_running; then
+        log_msg "未在运行，无需停止"
+        return 0
+    fi
+
+    local pid count=0
+    pid=$(head -n 1 "${PID_FILE}" 2>/dev/null | tr -d '[:space:]')
+    log_msg "停止 pid=${pid}"
+    kill -TERM "${pid}" 2>/dev/null
+
+    while kill -0 "${pid}" 2>/dev/null && [ ${count} -lt 10 ]; do
+        sleep 1
+        count=$((count + 1))
+    done
+
+    if kill -0 "${pid}" 2>/dev/null; then
+        log_msg "TERM 未能停止，改用 KILL"
+        kill -KILL "${pid}" 2>/dev/null
+        sleep 1
+    fi
+
+    rm -f "${PID_FILE}" 2>/dev/null
+    log_msg "已停止"
+    return 0
+}
+
+case "$1" in
+    start)
+        start_process
+        ;;
+    stop)
+        stop_process
+        ;;
+    status)
+        if is_running; then
+            exit 0
+        fi
+        exit 3
+        ;;
+    *)
+        exit 1
+        ;;
+esac

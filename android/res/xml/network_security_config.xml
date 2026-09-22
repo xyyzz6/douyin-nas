@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  局域网的 NAS 和 douyin-nas 服务基本都是 http，而 targetSdk 28+ 默认禁明文。
+  这里显式放开；信任链只留系统证书，App 只访问用户自己填的那个地址。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

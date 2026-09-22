@@ -1,0 +1,17 @@
+[
+  {
+    "stepTitle": "NAS 短视频 · 应用设置",
+    "items": [
+      {
+        "type": "switch",
+        "field": "wizard_allow_register",
+        "label": "允许注册「多设备同步」账号",
+        "initValue": "true"
+      },
+      {
+        "type": "tips",
+        "helpText": "关闭后不再接受新账号注册，已有账号照常登录与同步。<br>保存后服务会自动重启，几秒钟即可恢复。"
+      }
+    ]
+  }
+]

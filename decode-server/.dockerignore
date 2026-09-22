@@ -1,0 +1,27 @@
+# 构建上下文里不要的东西 —— 这个容器只需要 server.js
+# 把 public/ bin/ 这些排掉，构建上下文能小两个数量级（bin/ 里有 200MB 的 Windows ffmpeg）
+
+node_modules
+data
+*.log
+
+# 前端与工具（容器用不到）
+../public
+../bin
+../_tools
+../_shots
+../_backup
+../_deprecated
+../android
+../*.apk
+../check.js
+
+# 本机开发用的 ffmpeg（容器里已经装了 Linux 版）
+bin
+
+# 编辑器 / 系统垃圾
+.DS_Store
+Thumbs.db
+*.swp
+.vscode
+.idea

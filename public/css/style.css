@@ -1,0 +1,1776 @@
+/* ============================================================
+   NAS 短视频 · 抖音风格样式
+   ============================================================ */
+
+:root{
+  --brand:#FE2C55;
+  --brand-soft:rgba(254,44,85,.16);
+  --cyan:#25F4EE;
+  --bg:#000;
+  --fg:#fff;
+  --muted:rgba(255,255,255,.62);
+  --muted2:rgba(255,255,255,.42);
+  --sheet:#161823;
+  --sheet2:#22232e;
+  --line:rgba(255,255,255,.10);
+  /* ---- 液态玻璃系统（2026-09-20 视觉升级）----
+     浅色玻璃（图标/按钮/胶囊）= 半透明白 + 细亮边；
+     深色玻璃（面板/卡片）= 半透明近黑 + 模糊；
+     所有玻璃表面统一用 --sheen 给顶部一道高光，--stroke 给 1px 描边，
+     --blur 做折射。缓动用苹果弹簧曲线，转场更「液态」。 */
+  --glass:rgba(255,255,255,.08);
+  --glass-2:rgba(255,255,255,.13);
+  --glass-stroke:rgba(255,255,255,.16);
+  --glass-stroke-2:rgba(255,255,255,.30);
+  --glass-dark:rgba(18,20,28,.60);
+  --glass-dark-2:rgba(20,22,31,.80);
+  --blur:blur(26px) saturate(180%);
+  --blur-soft:blur(16px) saturate(160%);
+  --sheen:linear-gradient(180deg,rgba(255,255,255,.18),rgba(255,255,255,0) 42%);
+  --ease:cubic-bezier(.22,1,.36,1);          /* 软出·弹簧 */
+  --ease-soft:cubic-bezier(.16,1,.3,1);
+  --ease-spring:cubic-bezier(.34,1.56,.64,1);
+  --r-lg:24px; --r-md:16px; --r-sm:12px; --r-pill:999px;
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-t:env(safe-area-inset-top,0px);
+  /* ---- 主题令牌（2026-09-21 加：深色 / 浅色 / 跟随系统）----
+     背景：这个文件原先有 148 处硬编码色（103 处 rgba(255,255,255,α) + 45 处 #fff/#000）。
+     深色下看着没问题，一换浅色就会出现「白底上一块黑玻璃」的花屏，所以把**界面**
+     用到的那批收敛成下面的令牌；**压在视频/图片上的那批故意保留硬编码**
+     （.feed / .item / .player / .rail / .meta / .progress / .grad-* 系列 /
+       .topbar / .mode-badge / .vph），
+     它们下面永远是视频，跟着主题变反而会看不清。
+     浅色只覆盖这些令牌的值（见文件末尾 html[data-theme="light"]），一条规则都不用重写。
+
+     🔴🔴 **这段注释里绝对不能让「星号」和「斜杠」紧挨着出现** —— 那两个字符
+     连在一起就是 CSS 的注释结束标记。原来这里写的是
+     「（.feed/.item/....grad-* 紧跟斜杠再跟 .topbar/.vph）」，那个位置正好
+     凑出了结束标记，于是**注释在这一处提前结束了**，后面到下一个分号之间的
+     东西被当成一条声明整段吃掉 —— 而紧跟其后的恰好是 `--page-bg:#0a0a0c;`：
+       · `:root` 里 87 个令牌只解析出 86 个；
+       · 深色主题下 `body` 的背景变成**透明**（浅色下看不出来，因为浅色块里
+         又声明了一遍 --page-bg）；
+       · **完全不报错**，只有把 `:root` 的声明逐个数一遍才发现少了一个。
+     同类坑本项目已经栽过：§21.10（XML 注释里写两个连着的减号，让 aapt2
+     静默退回默认 minSdk）、§70（Java 块注释里拿「星号加斜杠」当通配符举例）。
+     **注释里引用路径 / 通配符时，一律写成「.grad-* 系列」这种描述写法。**
+     check.js 有一条断言专门守这个（数两种注释标记的个数是否相等）。 */
+  --page-bg:#0a0a0c;                 /* body 底 */
+  --stage-bg:#07070a;                /* PC 上手机外框背后的底色 */
+  --bezel:#14151b;                   /* PC 上手机外框的描边 */
+  --bezel-2:#26272f;
+  --srf:#0b0c10;                     /* 二级页面底（.page / .empty） */
+  --srf2:#15161c;                    /* 缩略图卡片底 */
+  --srf3:#111;                       /* 视频缩略图占位底 */
+  --srf4:#1c1d26;                    /* select 展开项底 */
+  --sw-off:#3a3c48;                  /* 开关「关」态底 */
+  --knob:linear-gradient(180deg,#fff,#e8e8ee);   /* 开关圆点 */
+  --tile:linear-gradient(135deg,#34374a,#202230); /* 文件夹图标底 */
+  --tabbar-bg:linear-gradient(180deg,rgba(22,24,33,.82),rgba(11,12,16,.95));
+  --brhead-bg:rgba(11,12,16,.96);
+  --brsrc-bg:rgba(15,16,21,.97);
+  --toast-bg:rgba(255,255,255,.95);
+  --toast-fg:#111;
+  --ink:#fff;                        /* 面板上的主文字/图标（≠ --fg，那个是视频区的） */
+  --star:#FFC53D;                    /* 文件夹 / 收藏图标 */
+  --cyan-fg:#a8f7f4;                 /* 本机片源 / .strm 的强调文字 */
+  --blue-fg:#85B7EB;
+  --code-fg:#ffd9e2;
+  --bad-fg:#ffb3c3;                  /* .cf-status.bad 的文字色 */
+  --cap-ok:#5BD48A; --cap-warn:#FFC53D; --cap-bad:#FF6B6B;
+  --ol-ok:#8ce99a; --ol-bad:#ff8787;
+  --sh-soft:rgba(0,0,0,.28);         /* 卡片投影 */
+  --sh-mid:rgba(0,0,0,.42);          /* 底栏投影 */
+  --sh-big:rgba(0,0,0,.55);          /* 面板投影 */
+  --sh-in:rgba(0,0,0,.45);           /* 内阴影（开关槽） */
+  /* 白色透明刻度：--wNN 的 NN = 不透明度百分比（--w08 = 8% 白）。
+     ⚠️ 为什么不把 .04/.05/.06 合并成一档：合并会改到**深色**下的观感，
+        而深色是现在正在用的主题，不该被这次改动动到。所以 1:1 映射，
+        浅色侧再统一翻成深色系（rgba(22,24,35,同档位)）。 */
+  --w045:rgba(255,255,255,.045);
+  --w05:rgba(255,255,255,.05);
+  --w06:rgba(255,255,255,.06);
+  --w07:rgba(255,255,255,.07);
+  --w08:rgba(255,255,255,.08);
+  --w09:rgba(255,255,255,.09);
+  --w10:rgba(255,255,255,.1);
+  --w11:rgba(255,255,255,.11);
+  --w12:rgba(255,255,255,.12);
+  --w13:rgba(255,255,255,.13);
+  --w16:rgba(255,255,255,.16);
+  --w17:rgba(255,255,255,.17);
+  --w18:rgba(255,255,255,.18);
+  --w20:rgba(255,255,255,.2);
+  --w22:rgba(255,255,255,.22);
+  --w25:rgba(255,255,255,.25);
+  --w28:rgba(255,255,255,.28);
+  --w30:rgba(255,255,255,.3);
+  --w32:rgba(255,255,255,.32);
+  --w40:rgba(255,255,255,.4);
+  --w45:rgba(255,255,255,.45);
+  --w55:rgba(255,255,255,.55);
+  --w62:rgba(255,255,255,.62);
+  --w80:rgba(255,255,255,.8);
+  --w82:rgba(255,255,255,.82);
+  --w86:rgba(255,255,255,.86);
+  --w90:rgba(255,255,255,.9);
+  --w92:rgba(255,255,255,.92);
+
+  /* ============================================================
+     液态玻璃 v2 补充令牌（2026-09-22 视觉升级，对齐 liquid-douyin UI Kit）
+     ------------------------------------------------------------
+     🔴 这一批是**纯新增**，上面那 87 个令牌一条都没动。
+        要回退只需删掉这一段（再把用到它们的组件规则还原），
+        不需要去逐个改组件 —— 这是刻意留的退路。
+
+     补的是什么，以及每条补的理由：
+
+     · 玻璃再加两档。原来的 .08 / .13 做不出「常态 → 浮起 → 选中」三层，
+       分段控件的活动块和按钮按压都卡在 .13 上，看着是平的、没有层次。
+
+     · 斜向镜面层。苹果液态玻璃最显眼的其实不是顶部那道横高光，而是
+       一束从左上斜切到右下的「水光」。这是本次观感变化最大的一条。
+
+     · 模糊补两档。原来只有 16 / 26 两个值，细工具栏和大抽屉共用一档，
+       要么糊得不够、要么贵得不值。
+
+     · 圆角补一档大角。面板顶角从 24 提到 32，是 kit 的比例。
+
+     · 时长与投影阶梯。原来每个组件各写各的 box-shadow（散在十几处），
+       收敛成 sm / md / lg 三档后，改一处全变。
+
+     ⚠️ 「顶部内高光」那层**不能叫 sh-in** —— 这个名字已经被开关槽占用了
+        （值是 rgba(0,0,0,.45) 的内阴影）。所以另起名叫 sh-hi，别混。 */
+  --glass-3:rgba(255,255,255,.18);
+  --glass-4:rgba(255,255,255,.26);
+  --glass-dark-3:rgba(12,13,19,.92);
+  --glass-stroke-3:rgba(255,255,255,.48);
+
+  --specular:linear-gradient(140deg,
+      rgba(255,255,255,.30) 0%,
+      rgba(255,255,255,.07) 26%,
+      rgba(255,255,255,0) 50%,
+      rgba(255,255,255,.05) 100%);
+
+  --blur-thin:blur(8px) saturate(150%);
+  --blur-strong:blur(40px) saturate(200%);
+
+  --r-xl:32px;
+  --r-xs:8px;
+
+  --dur-fast:.18s;
+  --dur:.32s;
+  --dur-slow:.48s;
+
+  --sh-sm:0 2px 8px rgba(0,0,0,.28);
+  --sh-md:0 8px 24px rgba(0,0,0,.38);
+  --sh-lg:0 18px 48px rgba(0,0,0,.50);
+  --sh-hi:inset 0 1px 0 rgba(255,255,255,.22);
+  --sh-hi-b:inset 0 -1px 0 rgba(255,255,255,.06);
+
+  --brand-hi:#ff5c7a;
+  --brand-glow:rgba(254,44,85,.45);
+  --gold:#FFC53D;
+  --green:#34C759;
+
+  /* 文字层级（压在**界面**上的三档）。压在视频上的那批继续用硬编码，
+     理由见 .topbar 上面那一段注释。 */
+  --ink-2:rgba(255,255,255,.72);
+  --ink-3:rgba(255,255,255,.52);
+
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",
+    "PingFang SC","HarmonyOS Sans SC","Noto Sans SC","Microsoft YaHei",
+    system-ui,sans-serif;
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+[hidden]{display:none !important;}
+
+html,body{height:100%;margin:0;}
+body{
+  background:var(--page-bg);
+  color:var(--fg);
+  font-family:var(--font);
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+  user-select:none;
+}
+button{font-family:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;}
+input{font-family:inherit;}
+svg{display:block;}
+
+/* ---------------------- 舞台 / 手机外框 ---------------------- */
+.stage{
+  height:100dvh;height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  background:
+    radial-gradient(1000px 700px at 50% -15%,rgba(254,44,85,.16),transparent 58%),
+    radial-gradient(820px 600px at 88% 116%,rgba(37,244,238,.12),transparent 58%),
+    radial-gradient(720px 720px at 8% 8%,rgba(120,90,255,.07),transparent 60%),
+    var(--stage-bg);
+}
+.phone{
+  position:relative;
+  width:100%;height:100dvh;height:100vh;
+  background:var(--bg);
+  overflow:hidden;
+  isolation:isolate;
+}
+@media (min-width:600px) and (min-height:700px){
+  .phone{
+    width:400px;height:min(860px,94vh);
+    border-radius:36px;
+    border:1px solid var(--w08);
+    box-shadow:inset 0 1px 0 var(--w12),
+      0 0 0 10px var(--bezel),0 0 0 12px var(--bezel-2),0 40px 90px var(--sh-big);
+  }
+}
+/* 全屏播放时让手机外框停止裁剪，保证播放器能真正铺满浏览器窗口 */
+.phone.fs-open{overflow:visible;border-radius:0;box-shadow:none;}
+
+/* ---------------------- 顶部栏 ----------------------
+   🔴 **顶栏故意不跟随主题**（2026-09-21 用户拍板）。
+   这块改过一版「浅色主题下顶栏也变白」，用户看了之后说：
+     「这个部分跟深色主题一样就可以了不用改动」
+   —— 也就是**两个主题下顶栏都保持深色渐变 + 白色图标/白胶囊**。
+   原因（用户没细说，但看得出来）：顶栏是压在视频上的悬浮层，
+   做成白色实底会在视频顶上贴一条白板、硬边很难看；
+   深色渐隐才能「融进画面」。**别按「浅色主题就该全白」再改它一遍。**
+   （底栏是另一回事：它在页面最底下、压不到画面主体，用户明确要求它跟随主题，见文件末尾。） */
+.topbar{
+  position:absolute;top:0;left:0;right:0;z-index:30;
+  padding:calc(var(--safe-t) + 8px) 12px 10px;
+  display:flex;align-items:center;gap:6px;
+  justify-content:flex-end;      /* 只有右边两个图标参与排布；标题已绝对定位 */
+  background:linear-gradient(180deg,rgba(0,0,0,.55),transparent);
+  pointer-events:none;
+}
+.topbar > *{pointer-events:auto;}
+/* 🔴 顶栏图标**不能用 backdrop-filter**（2026-09-21 卡顿排查）：
+ *    它就压在正在播放的视频上，blur 的背板每帧都在变 → 合成器每帧都要把这块
+ *    视频重新取一次做模糊，实机上「刷视频时点不动」多半栽在这。
+ *    玻璃观感改用「半透明底 + 白描边 + 内高光」表达（不用真模糊），
+ *    实心度从 8% 提到 18% 来补回原来靠模糊压出来的层次。 */
+/* 🔴 顶栏图标**不能用 backdrop-filter**（2026-09-21 卡顿排查）：
+ *    它就压在正在播放的视频上，blur 的背板每帧都在变 → 合成器每帧都要把这块
+ *    视频重新取一次做模糊，实机上「刷视频时点不动」多半栽在这。
+ *    玻璃观感改用「半透明底 + 白描边 + 内高光」表达（不用真模糊），
+ *    实心度从 8% 提到 18% 来补回原来靠模糊压出来的层次。 */
+.tb-icon{
+  width:34px;height:34px;border-radius:50%;
+  display:grid;place-items:center;color:#fff;
+  /* 玻璃观感由三层堆出来：半透明底 + 亮描边 + 「上亮下暗」的内高光。
+     🔴 「上亮下暗」这对比是关键 —— 只有顶部高光的话，它看起来像一张贴纸；
+     补上一道底部暗边，厚度才出得来。（kit 的 .g-float 同一个配方） */
+  background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.34),
+    inset 0 -1px 0 rgba(0,0,0,.18),
+    0 4px 14px rgba(0,0,0,.30);
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));
+  transition:background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) var(--ease);
+}
+/* ---- 左上角「重启应用」（2026-09-19 加；同日从「刷新片库」改成重启）----
+   ⚠️ 必须**绝对定位**：.topbar 是 justify-content:flex-end，DOM 里插进去会被排到
+      右边，跟搜索 / 换一批挤在一起（用户要的是左上角）。
+      左边距和 .top-title 的 left:88px 不冲突 —— 按钮宽 34 + 左距 12 = 46，
+      88 那侧是给标题留的安全区。 */
+.tb-restart{
+  position:absolute;
+  left:12px;
+  top:calc(var(--safe-t) + 8px);
+}
+.tb-restart:active{transform:scale(.9);opacity:.75;}
+/* 转一圈的即时反馈：点下去到页面真正重新加载之间有几百毫秒空档，
+   不转用户会以为没点着、然后狂点。JS 在调重启之前立刻加 .spin。 */
+.tb-restart.spin svg{animation:tbSpin .6s linear infinite;}
+@keyframes tbSpin{to{transform:rotate(360deg);}}
+.tb-icon:active{
+  background:rgba(255,255,255,.26);
+  transform:scale(.9);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.40), 0 2px 8px rgba(0,0,0,.34);
+}
+/* 标题（片源名 + 数量角标）要落在**屏幕正中**，而不是「剩下的那块空间」的正中。
+ *
+ * 为什么不能靠 flex 居中：右边有搜索/换一批两个 34px 图标、左边一个都没有，
+ * 标题的 flex 盒会被推到左边；它的 justify-content:center 只在**自己盒子里**居中，
+ * 结果整块内容偏左约 40px（实测内容中心 140 vs 屏幕中心 180）。
+ *
+ * 所以直接绝对定位、左右各留出等宽的边（88px = 12 内边距 + 34 图标 + 6 gap + 36 余量），
+ * 这样不管以后再往顶栏加几个图标，标题永远是屏幕水平的正中。 */
+.top-title{
+  position:absolute;
+  left:88px;right:88px;
+  /* 垂直：topbar 的上内边距是 safe-t + 8px，图标那行 34px 高，
+     标题自己也按 34px 行高来居中，两边才对得齐 */
+  top:calc(var(--safe-t) + 8px);
+  height:34px;
+  margin:0 auto;
+  display:flex;align-items:center;justify-content:center;gap:4px;
+  padding:0 14px;border-radius:var(--r-pill);
+  background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.14);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16), inset 0 -1px 0 rgba(0,0,0,.14),
+    0 4px 14px rgba(0,0,0,.28);
+  font-size:16px;font-weight:600;color:#fff;
+  text-shadow:0 1px 4px rgba(0,0,0,.5);letter-spacing:.3px;
+  white-space:nowrap;overflow:hidden;
+}
+/* ⚠️ 这里原来还有 `.top-title:active`（按压变亮）和 `.top-title svg`（那个 ⌄ 箭头）。
+   两者随 2026-09-18「去掉箭头 + button 降级成 div」一起删了 ——
+   静态标题不需要按压反馈，里面也没有 svg 了。
+   别加回来：那会让它重新看起来像个能点的按钮（其实它什么都没绑）。 */
+/* 片源名：太长就省略，别把旁边的数字角标挤没 */
+.top-title .tt-name{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+/* 视频数量：贴在片源名右边的数字角标。
+   ⚠️ 它不是任何入口 —— 整条 top-title 都没有事件（见 index.html 里的注释）。 */
+.top-title .tt-count{
+  flex:none;
+  min-width:19px;height:17px;padding:0 6px;border-radius:9px;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;
+  color:#fff;background:rgba(255,255,255,.2);
+  letter-spacing:0;
+}
+
+/* ---------------------- 提示徽标 ----------------------
+   和顶栏同一个道理：它也在视频画面上，**不跟随主题**（见 .topbar 上面的注释）。 */
+.mode-badge{
+  position:absolute;z-index:29;left:50%;transform:translateX(-50%);
+  top:calc(var(--safe-t) + 92px);   /* 让开「点击开启声音」提示条，别叠在一起 */
+  font-size:11.5px;color:rgba(255,255,255,.85);
+  background:rgba(0,0,0,.62);border:1px solid var(--line);
+  padding:4px 11px;border-radius:20px;
+  white-space:nowrap;pointer-events:none;
+  max-width:calc(100% - 26px);overflow:hidden;text-overflow:ellipsis;
+}
+.sound-hint{
+  position:absolute;z-index:29;left:50%;transform:translateX(-50%);
+  top:calc(var(--safe-t) + 50px);
+  font-size:12.5px;color:#fff;
+  background:rgba(254,44,85,.92);
+  padding:6px 14px;border-radius:20px;
+  box-shadow:0 6px 20px rgba(254,44,85,.4);
+  /* ⚠️ 原来这里是 `infinite`（2026-09-21 改）：它压在视频上一直跳动，
+     等于**永远叫不醒不下来的合成器** —— 一直在跑动画、一直在重绘那一条。
+     改成就跳 3 下（约 5s）就停：照样能引起注意，之后就安静了。 */
+  animation:bob 1.8s ease-in-out 3;transition:.3s var(--ease);
+}
+@keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(3px)}}
+.sound-hint.hide{opacity:0;pointer-events:none;}
+
+/* 顶栏 / 模式徽标 / 声音提示的淡入淡出。
+   （这里原来是整套「下拉刷新」指示器的样式 —— 2026-09-18 按用户要求把下拉刷新
+     整个功能删了，`.ptr*` 与 `.phone.ptr-pulling` / `.phone.ptr-anim` 全部移除。
+     这一条是**通用**过渡声明，声音提示的 `.hide` 还在用它，所以留下。） */
+.topbar,.mode-badge,.sound-hint{transition:opacity .25s var(--ease);}
+
+/* ---------------------- 信息流 ---------------------- */
+.feed{
+  position:absolute;inset:0;z-index:10;
+  overflow-y:scroll;overflow-x:hidden;
+  scroll-snap-type:y mandatory;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+  scrollbar-width:none;
+  background:#000;
+  /* 🔴 竖向手势交回浏览器（2026-09-18 第二次修「不跟手」）。
+     ─────────────────────────────────────────────────────────────
+     这里原来是 `touch-action:none`，理由是「底部下拉刷新要跟手，不能让浏览器
+     把这串触摸判成原生滚动」。代价是**竖向滚动只能由 JS 每帧写 scrollTop** ——
+     而 `scrollTop` 是**主线程属性**：主线程一忙，画面就冻住。
+
+     实测（`_tools/visual-block-test.js`：拖动途中用忙等循环堵死主线程 4s 再截图）：
+       · touch-action:none  → 手指已经划过，画面**纹丝不动**（同一条、同一位置）
+       · touch-action:pan-y → 画面继续走（合成器线程在滚）
+     这就是用户说的「不跟手」。抖音那种丝滑，本质就是滚动跑在合成器线程上。
+
+     改成 pan-y 之后：
+       · 竖向翻页由**浏览器原生 scroll-snap** 完成（合成器线程，主线程忙也不卡）；
+         `.item` 上的 `scroll-snap-align:start` + `scroll-snap-stop:always`
+         天然就是「一次手势只走一条」，JS 那套落点计算可以整个退休。
+       · 横滑仍然留给 JS（进度条 / 长按倍速都只认横向位移，不受影响）。
+       · `overscroll-behavior-y:contain` 顺手挡住浏览器**自带**的下拉刷新 ——
+         不加的话在顶部往下拽会触发 Chrome 整页重载，把 App 状态全冲掉。
+
+     ⚠️ 2026-09-18 晚：**App 自己的下拉刷新已按用户要求整个删除**。
+        它当时是改 `pan-y` 的唯一代价（浏览器一发 `pointercancel` 就掐断 pointer 流，
+        实测往顶部往下拽 800px：touchmove 收到 32 个、pointermove 只收到 **2** 个），
+        为此才引入 `useTouch` 在 touch/pointer 之间二选一。
+        功能删掉后那套分支也一起没了 —— **`touch-action:pan-y` 现在没有任何代价**。
+        「重扫片库」这个动作还在，入口是「我的」页的「重新扫描」按钮。 */
+  touch-action:pan-y;
+  /* 滚动容器本身也提到独立层：省掉「滚动时整棵子树重绘」。 */
+  will-change:scroll-position;
+  contain:paint;
+}
+.feed::-webkit-scrollbar{display:none;}
+.player-feed{
+  position:absolute;inset:0;overflow-y:scroll;
+  scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;
+  touch-action:pan-y;            /* 竖滑交给浏览器切集；横滑留给 JS 做快进，不被浏览器当横向滚动掐断 */
+  overscroll-behavior:contain;   /* 横滑时不触发系统返回/边界回弹 */
+  scrollbar-width:none;
+}
+.player-feed::-webkit-scrollbar{display:none;}
+
+/* ---- 窗口化的两个占位块（2026-09-21）----
+   窗口外的 `.item` **根本不存在**，滚动高度全靠这两个块撑着：高度由 JS 按
+   「几个整屏」写成百分比（见 app.js 的 syncWindow）。
+   🔴 它们**绝不能有 `scroll-snap-align`** —— 那会让占位块自己变成一个吸附点，
+      滑到那里就是一整屏空白。所以这里一个和吸附相关的属性都不给。 */
+.feed-pad{width:100%;height:0;pointer-events:none;}
+
+.item{
+  position:relative;
+  height:100%;width:100%;
+  scroll-snap-align:start;
+  scroll-snap-stop:always;
+  display:flex;align-items:center;justify-content:center;
+  background:
+    radial-gradient(120% 80% at 50% 0%,#181a22 0%,#0b0c10 55%,#000 100%);
+  overflow:hidden;
+  /* ---- 滚动流畅性（「上下刷视频不跟手」的第三个来源）----
+     1) contain:strict —— 让每条 item 成为独立布局/绘制/paint 容器。
+        没有它时，滚一下要让整个 feed 的绘制树失效重算，item 越多越卡。
+        ⚠️ 加了 strict 之后 item 的尺寸**不再受子元素影响**，必须自己写死；
+        这里 height/width 都是 100%，满足前提。
+     2) content-visibility:auto —— 视口外的 item 直接跳过布局和绘制。
+        contain-intrinsic-size 必须给一个和真实高度一致的值（100vh），
+        否则浏览器猜的高度和实际不符，滚动条会在你滑过去的一瞬间跳一下。
+     3) will-change:transform —— 把它提到独立合成层，滚动时只做合成，
+        不用重新光栅化。（这条最直接地治「跟手」，代价是每条约占一份显存，
+        但 .item 只装一个 video + 少量覆盖层，可接受。） */
+  contain:strict;
+  content-visibility:auto;
+  contain-intrinsic-size:auto 100vh;
+  will-change:transform;
+}
+.item .vwrap{
+  position:absolute;inset:0;overflow:hidden;
+  -webkit-touch-callout:none;   /* 长按画面是「2 倍速」，别弹出系统菜单 */
+}
+.item video{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:contain;
+  background:#000;
+  /* 视频自己就是一个合成层，别再给它 will-change（会和上面 .item 的重复，白占显存）。
+     首帧出来之前用 opacity 渐显，避免「黑一帧再出现」的闪跳。 */
+  backface-visibility:hidden;
+  opacity:0;transition:opacity .28s ease;
+}
+.phone[data-fit="cover"] .item video{object-fit:cover;}
+.item.ready video{opacity:1;}
+.item .vph{
+  grid-area:1/1;
+  display:grid;place-items:center;gap:12px;
+  color:var(--muted);font-size:12.5px;text-align:center;padding:0 40px;
+  /* 占位（标题文字 + 转圈）跟着 .vbox 居中：竖屏放横屏片时，
+     「在画面正中」比「在整屏正中」更符合直觉 —— 黑边上什么都不该有。 */
+}
+.item.ready .vph{display:none;}
+
+/* 「视频画面矩形」——按 contain 算出来的那块真正有画面的区域，居中于 item。
+   由 fitVideoBox 写入 --vbw/--vbh；拿不到尺寸时缺省 100%（= 没有黑边）。
+   所有「该对着画面居中」的浮层（加载转圈、暂停大按钮）都放进它里面，
+   这样黑边不对称时它们也不会飘到黑边上去。 */
+.item .vbox{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:var(--vbw,100%);height:var(--vbh,100%);
+  display:grid;grid-template:1fr/1fr;place-items:center;
+  pointer-events:none;z-index:14;
+}
+
+/* 占位上的「转圈」只在**真的在加载**时才转（.stalling 由 JS 加）。
+   以前是不管三七二十一都转：视频明明已经停了 / 这条路压根没起来，
+   圈还在那儿匀速转 —— 用户只能理解成「一直在缓冲」。
+   现在停转即静止，让画面如实反映状态；圈本身改用 border-top 上色，
+   看得清是转是停。
+
+   ⚠️ 这里是**唯一**的「正在加载」转圈，别再给同一条 item 加第二个。
+   历史坑（用户反馈「有两个加载图标」）：下面 .item.stalling::after 曾经也画了一个
+   几乎同心的 34px 环，于是「还没出第一帧（非 .ready）+ 正在缓冲（.stalling）」时
+   两个环一上一下同时亮着：
+     · .vph::before  在 .vph 的 grid 居中位（页面正中偏下）
+     · ::after       在 .item 的 absolute 50%/50%（页面正中）
+   两者只在「非 ready」时才同时存在（.item.ready .vph{display:none} 会藏掉前者），
+   而「非 ready + stalling」正是每次起播的头一两秒 —— 用户一眼就看见两个圈。
+   现在统一：**占位在，就用 .vph::before 这一个**；占位没了（.ready），
+   才轮到 ::after 出来顶替。见下面 .item.ready.stalling::after 那条。
+   （两条规则的尺寸也顺便对齐成 34px，切换时不会「跳」一下大小。）
+
+   ⚠️ 位置也一并修了：以前 .vph 是 inset:0 + grid 居中，落在**整屏**中心；
+      视频有黑边时画面中心 ≠ 整屏中心，圈就飘到黑边上去了。
+      现在把占位的文字和圈都收进 .vbox（画面矩形）里居中。 */
+.item .vph::before{
+  content:"";width:34px;height:34px;border-radius:50%;
+  border:2.5px solid rgba(255,255,255,.18);
+  border-top-color:rgba(255,255,255,.75);
+}
+.item.stalling .vph::before{animation:spin .8s linear infinite;}
+
+/* 长按加速：角标只在按住时出现（.fast 由 JS 加） */
+.item .rate-ind{
+  position:absolute;left:50%;top:calc(12% + var(--safe-t));transform:translateX(-50%) scale(.9);
+  z-index:13;pointer-events:none;opacity:0;transition:opacity .18s var(--ease),transform .18s var(--ease);
+  display:flex;align-items:center;gap:6px;
+  padding:6px 13px;border-radius:999px;
+  font-size:12px;font-weight:600;letter-spacing:.3px;color:#fff;
+  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.22);
+}
+.item .rate-ind b{font-size:13.5px;font-weight:800;color:#fff;}
+.item.fast .rate-ind{opacity:1;transform:translateX(-50%) scale(1);}
+
+/* 正在缓冲：画面不动也不黑屏，只在**视频画面正中**转一个小圈（.stalling 由 JS 加）。
+   ⚠️ 必须带 `.ready` —— 这是「两个加载图标」那个 bug 的正解。
+   占位还在时（!ready）圈由上面的 .vph::before 负责，这里再画就是第二个圈；
+   只有占位已经撤了（.ready，第一帧出来了、画面有了）才轮到这一个。
+   两条规则互斥，任何时刻同一条 item 上**只有一个**转圈。
+
+   ⚠️ 位置用 .vbox（= 画面实际矩形，见上面 .item .vbox 的说明），
+      而不是 50%/50% 的整屏中心。视频有黑边时两者不是一回事：
+      竖屏手机放横屏片，画面只占中间一条，圈挂在整屏中心就落到黑边上了，
+      看着像「浮在画面外」。
+
+   🔴 `grid-area:1/1` **绝对不能省**（2026-09-18 修「快进转圈偏下」）。
+      原因：`.vbox` 是 `grid-template:1fr/1fr` —— **一行一列**。
+      `.vph` 和 `.pause-ind` 都显式写了 `grid-area:1/1`，只有这个 `::after`
+      是伪元素、没人给它定位，于是被**自动排进隐式的第 2 行**。后果有两个：
+        ① 隐式行抢走高度：实测 grid-template-rows 变成 `163.8px 38.7px`，
+           而不是「一行占满 203px」→ 连 `.pause-ind` 都跟着偏了 19px；
+        ② `::after` 自己落在那条隐式行里，中心在 y≈390，比画面中心（y=308）
+           **低了 82px** —— 就是用户截图上圈在画面下半部分的原因。
+      钉成 `grid-area:1/1` 后：不再产生隐式行，三样东西（占位 / 暂停按钮 / 转圈）
+      都老老实实居中在同一格里，而且 `.stalling` 加不加**不会让布局跳一下**。
+      真机上反证过：临时把这一行撤成 `grid-area:auto`，网格立刻退回
+      `163.833px 38.6667px` 两行、`.pause-ind` 从 308 偏到 289；装回去就恢复单行 202.5px。
+
+   📌 **教训（以后往 .vbox 里加任何东西都要遵守）**：
+      `.vbox` 是固定「一行一列」的 grid，**每个孩子都必须自己写 `grid-area:1/1`**。
+      少写一个，它就会被自动排进隐式的第 2 行 —— 既抢走 `1fr` 的高度、
+      自己又跑到画面下半部分去。这个坑极隐蔽：不报错、不影响功能，只是「位置不对」。 */
+.item.ready.stalling .vbox::after{
+  content:"";
+  grid-area:1/1;                    /* ⚠️ 见上面的长注释，别删 */
+  width:34px;height:34px;
+  border-radius:50%;
+  border:2.5px solid rgba(255,255,255,.3);
+  border-top-color:#fff;
+  animation:spin .8s linear infinite;
+}
+
+.item .grad-top{
+  position:absolute;top:0;left:0;right:0;height:22%;pointer-events:none;
+  background:linear-gradient(180deg,rgba(0,0,0,.55),transparent);
+}
+.item .grad-bottom{
+  position:absolute;left:0;right:0;bottom:0;height:46%;pointer-events:none;
+  background:linear-gradient(0deg,rgba(0,0,0,.82) 8%,rgba(0,0,0,.45) 45%,transparent);
+}
+
+/* ---- 右侧操作栏 ---- */
+.rail{
+  position:absolute;right:7px;bottom:calc(84px + var(--safe-b));
+  z-index:12;width:60px;
+  display:flex;flex-direction:column;align-items:center;gap:17px;
+}
+.rail-item{
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  color:#fff;filter:drop-shadow(0 2px 6px rgba(0,0,0,.55));
+  transition:transform .2s var(--ease);
+}
+.rail-item:active{transform:scale(.88);}
+.rail-item .ic{width:36px;height:36px;display:grid;place-items:center;}
+.rail-item .ic svg{width:33px;height:33px;}
+.rail-item .num{font-size:11.5px;font-weight:600;letter-spacing:.2px;}
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}
+.rail-item.on{color:var(--brand);}
+.rail-item.on .ic svg{animation:pop .38s cubic-bezier(.3,1.6,.5,1);}
+.rail-item.fav-on{color:#FFC53D;}
+.rail-item.fav-on .ic svg{animation:pop .38s cubic-bezier(.3,1.6,.5,1);}
+
+/* ---- 双击 / 按钮点赞的爱心 ---- */
+.burst{
+  position:fixed;z-index:86;pointer-events:none;
+  width:120px;height:120px;transform:translate(-50%,-50%);
+  display:grid;place-items:center;
+}
+.burst svg{width:104px;height:104px;animation:burst .8s cubic-bezier(.2,1.2,.4,1) forwards;}
+@keyframes burst{
+  0%{transform:scale(.2) rotate(-22deg);opacity:0}
+  35%{transform:scale(1.18) rotate(6deg);opacity:1}
+  70%{transform:scale(1) rotate(0);opacity:1}
+  100%{transform:scale(1.5) rotate(0);opacity:0}
+}
+
+/* ---- 左下文案 ---- */
+.meta{
+  position:absolute;left:13px;right:88px;
+  bottom:calc(84px + var(--safe-b));
+  z-index:12;text-align:left;
+}
+.meta .author{
+  font-size:16px;font-weight:750;margin-bottom:7px;
+  display:flex;align-items:center;gap:6px;
+  text-shadow:0 1px 6px rgba(0,0,0,.6);
+}
+/* 徽标基础样式（尺寸 / 内边距 / 圆角）。⚠️ 不给 background ——
+   唯一在用的 `.badge.strm` 是描边空心，实底那个「NAS」已删。 */
+.meta .author .badge{
+  font-size:9.5px;font-weight:600;
+  padding:1.5px 5px;border-radius:4px;letter-spacing:.2px;
+}
+/* .strm 链接条目的徽标（2026-09-19，2026-09-20 收敛成唯一一种徽标）：
+   描边空心样式，一眼看出这条是外链播放（.strm 文件），不是网盘里的实体视频。
+   ⚠️ 原来这里是「实底 NAS vs 空心 STRM」两种 —— 实底那个「NAS」已删：
+      它是**写死的**（后端从没返回过 author 字段），既不带信息量又容易让人
+      以为「这条是从 NAS 来的」，而实际片源可能是本机 strm 库。现在只有
+      `.strm` 这一个真·有信息量的标。 */
+.meta .author .badge.strm{
+  background:transparent;color:rgba(255,255,255,.92);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.55);
+}
+/* `.author` 现在只可能装一个 STRM 标（没有标时整行不渲染）。
+   它的 margin-bottom 原本是给「作者名 + 标」那一行留的间距，现在仍是间距，
+   不用改；这里只补一句说明，别以为它是无主样式被顺手删掉。 */
+.meta .desc{
+  font-size:13.6px;line-height:1.45;margin-bottom:8px;
+  color:rgba(255,255,255,.96);
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  text-shadow:0 1px 6px rgba(0,0,0,.6);
+  word-break:break-word;
+}
+.meta .finfo{
+  display:flex;align-items:center;gap:6px;font-size:12.2px;
+  color:rgba(255,255,255,.82);min-width:0;
+}
+.meta .finfo .fi-ic{
+  width:13px;height:13px;flex:none;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 6.5A1.5 1.5 0 014.5 5h4.2l1.8 2H19.5A1.5 1.5 0 0121 8.5v9A1.5 1.5 0 0119.5 19h-15A1.5 1.5 0 013 17.5z' fill='black'/></svg>") center/contain no-repeat;
+          mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 6.5A1.5 1.5 0 014.5 5h4.2l1.8 2H19.5A1.5 1.5 0 0121 8.5v9A1.5 1.5 0 0119.5 19h-15A1.5 1.5 0 013 17.5z' fill='black'/></svg>") center/contain no-repeat;
+}
+.meta .finfo span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---- 进度条（加粗 + 常显滑块 + 足够大的触摸热区） ---- */
+.progress{
+  /* 热区占满整条屏宽。
+     ⚠️ 这里曾经缩成 `right:76px`，理由是「怕和右下角『收藏/全屏』那排按钮抢手势」。
+        那是个**没验证过的猜测**，实测是错的：
+          · .rail（三个圆钮）x 293~353、底边 y=532
+          · .meta（标题文案）底边 y=532
+          · .progress 在 y 540~566
+        两者在纵向**完全不重叠**，右侧那 76px 没有任何东西可抢。
+        而缩掉的后果是进度条只画到 284/360，右边空一截，看起来像「进度条断了一截」
+        —— 用户一眼就当成 bug 报上来了。所以恢复整宽。
+        真要防误触，正确做法是收窄**高度**（26px 已经很窄），而不是砍宽度。 */
+  position:absolute;left:0;right:0;bottom:calc(50px + var(--safe-b));
+  height:26px;z-index:13;display:flex;align-items:flex-end;
+  padding:0 0 6px;cursor:pointer;
+  touch-action:none;              /* 在这条上横拖 = 拖进度，不要触发页面滚动 */
+}
+.progress .track{
+  position:relative;width:100%;height:5px;
+  background:rgba(255,255,255,.3);border-radius:3px;
+  box-shadow:0 1px 5px rgba(0,0,0,.45);
+  transition:height .16s var(--ease),background .16s var(--ease);
+}
+.progress .bar{
+  position:absolute;left:0;top:0;bottom:0;width:0%;
+  background:linear-gradient(90deg,#fff,#ffe6ec);
+  border-radius:3px;
+}
+/* 滑块常显（以前只在 :hover 出现，手机上根本没有 hover，等于没有抓点） */
+.progress .bar::after{
+  content:"";position:absolute;right:0;top:50%;
+  width:13px;height:13px;border-radius:50%;background:#fff;
+  transform:translate(50%,-50%);
+  box-shadow:0 1px 6px rgba(0,0,0,.6);
+  transition:transform .14s var(--ease),box-shadow .14s var(--ease);
+}
+/* 悬停 / 拖动中：条更粗、滑块更大，明确告诉你「正在拖」 */
+.progress:hover .track,
+.progress.scrub .track{height:8px;background:rgba(255,255,255,.45);}
+.progress:hover .bar::after,
+.progress.scrub .bar::after{
+  transform:translate(50%,-50%) scale(1.3);
+  box-shadow:0 0 0 4px rgba(254,44,85,.28),0 2px 8px rgba(0,0,0,.6);
+}
+.progress .bar.buffering{background:rgba(255,255,255,.5);}
+
+/* ---- 暂停指示 ----
+   放进 .vbox 之后它就是「画面矩形内居中」，不再是整屏居中：
+   竖屏放横屏片时，大播放按钮对着画面正中最自然，落在黑边上会很怪。 */
+.pause-ind{
+  grid-area:1/1;                          /* 和 .vph 同一个格，叠在一起居中 */
+  z-index:1;opacity:0;transition:.28s var(--ease);pointer-events:none;
+  filter:drop-shadow(0 4px 14px rgba(0,0,0,.6));
+  transform:scale(.6);
+}
+.item.paused .pause-ind{opacity:1;transform:scale(1);}
+
+/* ---- 出错 / 不支持 ---- */
+.v-err{
+  position:absolute;inset:0;z-index:15;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  background:rgba(0,0,0,.72);padding:0 44px;text-align:center;
+}
+.v-err .t{font-size:15px;font-weight:600;}
+.v-err .d{font-size:12.5px;color:var(--muted);line-height:1.6;word-break:break-all;}
+.v-err .btn{margin-top:6px;font-size:13px;padding:8px 18px;}
+
+/* ---- 提示 toast ---- */
+/* 🔴 必须能换行、必须有宽度上限（2026-09-20 修）：
+   原来只有 `white-space:nowrap` 且**没有任何 max-width** —— 短提示看着挺好，
+   但像「之前设的文件夹已经打不开了，已回到根目录，重新挑一个吧。」
+   这种长句会**直接顶出屏幕两边**，用户看到的就是一句首尾都被裁掉、读不懂的话
+   （真机截图实测）。改成「限宽 + 正常换行 + 居中」后长句也能完整读。 */
+.toast{
+  position:fixed;left:50%;bottom:150px;transform:translate(-50%,12px);
+  z-index:85;background:var(--toast-bg);color:var(--toast-fg);
+  font-size:13px;font-weight:600;padding:10px 18px;border-radius:var(--r-pill);
+  opacity:0;pointer-events:none;
+  max-width:min(86vw, 560px);text-align:center;
+  line-height:1.45;white-space:normal;word-break:break-word;
+  box-shadow:var(--sh-md);
+  transition:.28s var(--ease);
+}
+.toast.show{opacity:1;transform:translate(-50%,0);}
+
+/* ---------------------- 加载 / 空态 ---------------------- */
+.loading{
+  position:absolute;inset:0;z-index:20;background:#000;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+}
+.loading p{color:var(--muted);font-size:13.5px;margin:0;}
+.spinner{
+  width:26px;height:26px;border-radius:50%;
+  border:2.5px solid var(--w18);border-top-color:var(--brand);
+  animation:spin .8s linear infinite;
+}
+.spinner.big{width:34px;height:34px;border-width:3px;}
+
+.empty{
+  position:absolute;inset:0;z-index:20;background:var(--srf);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:8px;padding:0 34px;text-align:center;
+}
+.empty-emoji{font-size:52px;margin-bottom:6px;}
+.empty h2{font-size:19px;margin:0;}
+.empty p{color:var(--muted);font-size:13.5px;margin:0 0 18px;line-height:1.6;}
+.empty-actions{display:flex;flex-direction:column;gap:10px;width:100%;max-width:250px;}
+
+/* ---------------------- 通用按钮 ----------------------
+   2026-09-22 视觉升级：从 16px 圆角矩形改成**胶囊**，并加一层顶部高光。
+   胶囊是这套液态玻璃的按钮语汇 —— 玻璃的边缘折射在直边上几乎看不出来，
+   圆头才让它像一颗水滴。 */
+.btn{
+  position:relative;overflow:hidden;
+  border-radius:var(--r-pill);font-size:14.5px;font-weight:600;
+  padding:12px 20px;
+  transition:transform var(--dur-fast) var(--ease-spring),
+    background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  text-align:center;
+}
+/* 顶部高光层。⚠️ 用 ::before 而不是 background-image 叠两层：
+   .primary / .ghost 各有自己的底色，叠图会被它们的 background 整条覆盖。 */
+.btn::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:var(--sheen);opacity:.5;
+}
+.btn:active{transform:scale(.95);}
+.btn.primary{
+  background:linear-gradient(180deg,var(--brand-hi),var(--brand));color:#fff;
+  border:1px solid rgba(255,255,255,.30);
+  box-shadow:0 8px 24px var(--brand-glow), var(--sh-hi);
+}
+.btn.ghost{
+  background:var(--glass-2);color:var(--ink);border:1px solid var(--glass-stroke-2);
+  -webkit-backdrop-filter:var(--blur-soft);backdrop-filter:var(--blur-soft);
+  box-shadow:var(--sh-hi), var(--sh-sm);
+}
+.btn.ghost:active{background:var(--glass-3);}
+/* 纯文字按钮：不要高光层、不要胶囊底 —— 它本质上是个链接。
+   ⚠️ `.btn.text::before` 必须关掉：那道白高光在深底上会糊出一条横带。 */
+.btn.text{background:none;color:var(--muted);font-weight:500;font-size:13px;padding:12px;}
+.btn.text::before{display:none;}
+.btn[disabled]{opacity:.5;pointer-events:none;}
+.btn[disabled]::before{display:none;}
+
+/* ---------------------- 二级页面 ---------------------- */
+.page{
+  position:absolute;inset:0;z-index:28;background:var(--srf);
+  overflow-y:auto;overscroll-behavior:contain;
+  padding-bottom:calc(70px + var(--safe-b));
+  scrollbar-width:none;
+}
+.page::-webkit-scrollbar{display:none;}
+.page-head{
+  display:flex;align-items:baseline;gap:10px;
+  padding:calc(var(--safe-t) + 20px) 18px 14px;
+}
+.page-head.small{padding:22px 18px 10px;}
+.page-head h1{font-size:21px;margin:0;font-weight:750;}
+.page-head h2{font-size:15px;margin:0;font-weight:700;color:var(--w92);}
+.page-sub{font-size:12.5px;color:var(--muted2);}
+
+.grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:2px;
+  padding:0 2px;
+}
+.cell{
+  position:relative;aspect-ratio:3/4;background:var(--srf2);overflow:hidden;
+  border-radius:var(--r-md);border:1px solid var(--w10);
+  box-shadow:var(--sh-sm);
+}
+.cell video{
+  width:100%;height:100%;object-fit:cover;display:block;
+  pointer-events:none;background:var(--srf3);
+}
+/* 网格缩略图：服务端抽帧缓存的 jpg（和上面 video 占位保持同一套几何） */
+.cell img{
+  width:100%;height:100%;object-fit:cover;display:block;
+  pointer-events:none;background:var(--srf3);
+}
+.cell .ph{
+  position:absolute;inset:0;display:grid;place-items:center;
+  color:var(--w28);font-size:22px;
+}
+.cell .cap{
+  position:absolute;left:0;right:0;bottom:0;padding:16px 6px 5px;
+  font-size:10.5px;line-height:1.3;color:#fff;
+  background:linear-gradient(0deg,rgba(0,0,0,.85),transparent);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.cell .dur{
+  position:absolute;right:5px;top:5px;font-size:10px;
+  background:rgba(0,0,0,.62);padding:1.5px 5px;border-radius:4px;
+}
+.grid-empty{
+  text-align:center;color:var(--muted2);font-size:13.5px;
+  padding:44px 20px;line-height:1.9;
+}
+.grid-empty span{font-size:12px;color:var(--w30);}
+
+/* ---- 收藏 / 点赞 分段 ----
+   2026-09-22：容器与活动块都改成胶囊，活动块抬到 glass-3 + 高光 + 投影 ——
+   让它看起来是「浮在槽里的一颗玻璃」，而不是「换了个底色的格子」。
+   ⚠️ 没做 kit 里那种**滑动**指示器（.g-seg__thumb）：那需要 JS 在每次切档时
+      算宽度和位移，而本项目的 .seg 有三处（#meSeg / #fitSeg / #themeSeg）
+      且档数、是否 flex:1 都不一样，为一条装饰动画在 app.js 里加一套状态机
+      不划算，也容易和别处的 class 切换打架。 */
+.seg{
+  display:flex;gap:6px;margin:0 18px 14px;padding:4px;
+  background:var(--glass);border:1px solid var(--glass-stroke);border-radius:var(--r-pill);
+  -webkit-backdrop-filter:var(--blur-soft);backdrop-filter:var(--blur-soft);
+  box-shadow:var(--sh-hi);
+}
+.seg button{
+  position:relative;flex:1;appearance:none;-webkit-appearance:none;border:0;background:transparent;
+  color:var(--muted);font-size:13.5px;font-weight:650;font-family:inherit;
+  padding:9px 0;border-radius:var(--r-pill);cursor:pointer;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.seg button.on{
+  background:var(--glass-3);color:var(--ink);
+  box-shadow:var(--sh-hi), var(--sh-sm);
+}
+
+/* ---- 我的页 ---- */
+.me-top{
+  display:flex;flex-direction:column;align-items:center;
+  padding:calc(var(--safe-t) + 30px) 18px 22px;
+  background:radial-gradient(120% 90% at 50% 0%,rgba(254,44,85,.14),transparent 65%);
+  position:relative;
+}
+/* 左上角账号/同步入口 */
+.me-account,
+.me-settings{
+  position:absolute;
+  top:calc(var(--safe-t) + 10px);
+  width:38px;height:38px;border-radius:50%;
+  background:var(--glass-2);border:1px solid var(--glass-stroke-2);
+  -webkit-backdrop-filter:var(--blur-soft);backdrop-filter:var(--blur-soft);
+  box-shadow:var(--sh-hi), var(--sh-sm);
+  color:var(--ink);display:grid;place-items:center;
+  -webkit-tap-highlight-color:transparent;cursor:pointer;
+  z-index:10;transition:background .2s var(--ease), transform .2s var(--ease), box-shadow .2s var(--ease);
+}
+.me-account{left:12px;}
+.me-settings{right:12px;}
+.me-account svg,.me-settings svg{pointer-events:none;}
+.me-account:active,
+.me-settings:active{background:rgba(254,44,85,.22);border-color:rgba(254,44,85,.45);transform:scale(.92);box-shadow:inset 0 1px 0 var(--w20),0 2px 10px rgba(254,44,85,.3);}
+/* 头像可点（换头像）。有自定义图时 JS 会清掉字并铺上 backgroundImage。 */
+.me-avatar{
+  width:84px;height:84px;border-radius:50%;
+  background:linear-gradient(135deg,var(--brand),#8a1c39);
+  display:grid;place-items:center;font-size:31px;font-weight:750;
+  border:2px solid rgba(255,255,255,.30);
+  box-shadow:0 0 0 4px rgba(255,255,255,.08), 0 12px 34px var(--brand-glow),
+    inset 0 2px 6px rgba(255,255,255,.32), inset 0 -8px 16px rgba(0,0,0,.30);
+  margin-bottom:14px;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  background-size:cover;background-position:center;
+}
+/* 名字可点（改名） */
+.me-name{font-size:19px;font-weight:750;margin-bottom:6px;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;}
+/* 改名的内联输入框：平时 hidden，点名字才出现，居中、宽度贴名字 */
+.name-edit{
+  font:inherit;font-size:17px;font-weight:650;color:var(--ink);text-align:center;
+  background:var(--glass-2);border:1px solid var(--glass-stroke-2);
+  border-radius:var(--r-md);padding:7px 13px;margin-bottom:6px;outline:none;width:220px;
+  box-shadow:var(--sh-hi);
+}
+.name-edit:focus{border-color:var(--brand);}
+.me-stats{display:flex;gap:22px;margin-bottom:16px;}
+.me-stats > *{
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  appearance:none;-webkit-appearance:none;border:0;background:transparent;
+  font-family:inherit;color:inherit;cursor:pointer;
+  padding:7px 11px;border-radius:10px;transition:background .2s var(--ease);
+}
+.me-stats > *:active{background:var(--glass-2);}
+.me-stats b{font-size:17.5px;font-weight:750;}
+.me-stats span{font-size:11.5px;color:var(--muted2);}
+.me-btns{display:flex;gap:10px;width:100%;max-width:320px;}
+.me-btns .btn{flex:1;}
+.me-src{
+  margin-top:4px;font-size:11.5px;color:var(--muted2);
+  text-align:center;word-break:break-all;line-height:1.05;
+}
+/* 缩略图缓存占用提示（空的时候不占位） */
+.me-thumb{
+  margin-top:4px;font-size:11.5px;color:var(--muted2);
+  text-align:center;word-break:break-all;line-height:1.5;
+}
+.me-thumb:empty{display:none}
+/* 版本号（2026-09-20）：**比上面两行再淡一档**…
+   它就是给「截图时能看见」用的，不该和片源/片库这些正经信息抢注意力。
+   等宽字体是为了截图里数字不会被看清错（1 和 l、0 和 O）。 */
+.me-ver{
+  margin-top:4px;font-size:10.5px;color:var(--muted2);opacity:.7;
+  text-align:center;letter-spacing:.3px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+/* 「我的」页下面内嵌的收藏 / 点赞列表 */
+.me-list-head{
+  display:flex;align-items:baseline;gap:9px;
+  margin-top:0;padding:6px 18px 10px;
+  border-top:1px solid var(--w10);
+}
+.me-list-head h2{font-size:15px;margin:0;font-weight:700;color:var(--w92);}
+.me-list-head span{font-size:12.5px;color:var(--muted2);}
+
+/* ---------------------- 底部导航 ---------------------- */
+.tabbar{
+  position:absolute;left:0;right:0;bottom:0;z-index:35;
+  height:calc(50px + var(--safe-b));
+  padding-bottom:var(--safe-b);
+  display:flex;
+  background:var(--tabbar-bg);
+  /* 顶边这道亮线是底栏唯一能表达「玻璃棱」的地方 —— 它不能用 backdrop-filter
+     （背后是活视频，见 check.js 那条负向断言），所以靠 1px 亮边 + 内高光
+     把「一块玻璃架在画面下沿」的观感做出来。 */
+  border-top:1px solid var(--w12);
+  box-shadow:inset 0 1px 0 var(--w16), 0 -10px 34px var(--sh-mid);
+  transition:transform .3s var(--ease);
+}
+.tabbar.hide{transform:translateY(110%);}
+.tabbar button{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  color:var(--w45);font-size:10.5px;font-weight:600;transition:color .2s var(--ease), transform .2s var(--ease);
+}
+.tabbar button:active{transform:scale(.94);}
+.tabbar button.active{color:var(--ink);}
+.tabbar button.active svg{filter:drop-shadow(0 0 8px var(--w40));}
+
+/* ---------------------- 蒙层 / 面板 ---------------------- */
+.mask{
+  position:absolute;inset:0;z-index:70;
+  background:radial-gradient(120% 120% at 50% 38%,rgba(0,0,0,.35),rgba(0,0,0,.62));
+  animation:fade .2s;
+}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:75;
+  /* 🔴 液态玻璃面板：半透明深色底 + 折射模糊 + 顶部一道高光描边。
+     backdrop-filter 只用在模态面板上（背后是信息流，模糊它正是玻璃观感），
+     绝不加在 .tabbar / .mode-badge / .mask 上（那些背后是视频，会糊）。
+     ⚠️ 面板一打开前端会先把首页视频**暂停**（pauseFeedForSheet）——
+        26px 大模糊压在正在播放的视频上，背板每帧都变，那个开销实机扛不住。
+        见 app.js 的 openSheet / closeSheet，别把那一段当无关代码删了。 */
+  background:var(--glass-dark);
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  border-top:1px solid var(--glass-stroke-2);
+  /* 2026-09-22：顶角从 24 提到 32。玻璃越薄越要靠大圆角才看得出「这是一整块」，
+     小圆角会显得像被裁掉的一截方块。（kit 的比例） */
+  border-radius:var(--r-xl) var(--r-xl) 0 0;
+  height:60%;display:flex;flex-direction:column;
+  box-shadow:0 -1px 0 var(--w12) inset, 0 -18px 60px var(--sh-big);
+  animation:up .34s var(--ease);
+  /* 两个玻璃伪层要按圆角裁掉，所以必须 hidden。
+     ⚠️ 面板内容是 .sheet-body 自己滚，不靠溢出，所以裁掉不会丢东西。 */
+  overflow:hidden;
+}
+/* 顶部那道横高光 —— 玻璃「受光」的关键。没有它，半透明深色底会显得很脏。 */
+.sheet::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:var(--sheen);opacity:.9;
+}
+/* 斜向镜面（左上 → 右下的一束水光）。液态玻璃最显眼的特征就是它。
+   ⚠️ 透明度刻意压到 .35 —— 它是「反光」，抢戏就变廉价了。 */
+.sheet::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:var(--specular);opacity:.35;
+}
+/* 🔴 内容必须盖在两个伪层之上：::before / ::after 是 absolute，
+   在同一个层叠上下文里会压住**没有定位**的静态子元素。 */
+.sheet > *{position:relative;z-index:1;}
+.sheet.tall{height:88%;}
+/* 「设置」面板（⚙️ 入口，2026-09-21）里目前只有一行「外观」，
+   用 60% 的默认高度会是一大块空白 —— 让它按内容定高。 */
+.sheet.compact{height:auto;max-height:80%;}
+/* 面板里的第一行不给上边框（.switch-row 自带 border-top，是第一行时会多一道线） */
+#settingsSheet .sheet-body > .switch-row:first-child{border-top:0;}
+/* 🔴 目录选择器必须盖在设置面板之上（2026-09-20 修「点『＋ 添加文件夹』没反应」）。
+   #dirPickSheet 在 HTML 里排在 #configSheet **之前**（行 194 vs 211），
+   可两者都是 `position:absolute;left:0;right:0;bottom:0` + `z-index:75`，
+   尺寸和位置**完全重叠**，`.sheet.tall` 又都是 88% 高 —— 同层级时
+   **DOM 里靠后的那个画在上面**，于是从设置页第 4 步打开选择器时，
+   它整块被 #configSheet 盖死：逻辑其实跑通了（列表、路径都读好了），
+   可用户看到的是「画面一点没变」，手指点上去也只会碰到设置面板自己的东西。
+
+   这里给它单独提一层，保证任何「从另一个面板里打开选择器」的入口都成立
+   （将来再加也不用记着同步改）。
+   ⚠️ 别改成在 openDirPick() 里 hide/restore #configSheet —— 那样还得
+      记着关选择器时把它恢复回来，凭空多一份状态机；提层级是无状态的。
+   取值：> .sheet(75)、> .mask(70)，< .toast(85)。
+   详见 skill §65。 */
+#dirPickSheet{z-index:78;}
+@keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-head{
+  display:flex;align-items:center;justify-content:center;position:relative;
+  padding:16px 16px 14px;font-size:15px;font-weight:650;color:var(--ink);
+  border-bottom:1px solid var(--w10);flex:none;
+  box-shadow:inset 0 1px 0 var(--w16);
+}
+/* ⛔ 这里**故意没有**「顶部小横条」（sheet 抓手下）。
+   它是个纯粹的假信号：本项目的面板都是点按钮开关的，没有下滑关闭，
+   画一根抓手 = 告诉用户「可以往下拽」，拽不动就是被骗。
+   §「假按钮」同类坑本项目栽过两次（已删的 #btnMenu 和标题那个 ⌄ 箭头），
+   别因为「kit 里有」就加回来。 */
+.sheet-close{
+  position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  width:32px;height:32px;border-radius:50%;color:var(--ink-2);
+  font-size:15px;display:grid;place-items:center;
+  background:var(--glass-2);border:1px solid var(--glass-stroke);
+  -webkit-backdrop-filter:var(--blur-soft);backdrop-filter:var(--blur-soft);
+  box-shadow:var(--sh-hi);
+  transition:background var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease-spring);
+}
+.sheet-close:active{background:var(--glass-3);transform:translateY(-50%) scale(.9);}
+.sheet-body{flex:1;overflow-y:auto;padding:16px 16px calc(20px + var(--safe-b));scrollbar-width:none;}
+.sheet-body::-webkit-scrollbar{display:none;}
+
+/* ---- 搜索 ---- */
+.search-bar{
+  flex:none;display:flex;align-items:center;gap:9px;
+  margin:12px 16px 4px;padding:0 15px;height:44px;
+  background:var(--glass-2);border:1px solid var(--glass-stroke-2);
+  border-radius:var(--r-pill);
+  -webkit-backdrop-filter:var(--blur-soft);backdrop-filter:var(--blur-soft);
+  box-shadow:var(--sh-hi);
+  color:var(--ink-3);
+  transition:border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.search-bar:focus-within{
+  border-color:rgba(254,44,85,.55);
+  box-shadow:var(--sh-hi), 0 0 0 3px rgba(254,44,85,.16);
+}
+.search-bar input{
+  flex:1;background:none;border:0;outline:none;color:var(--ink);
+  font-size:14.5px;padding:0;
+}
+.search-bar input::placeholder{color:var(--ink-3);}
+.search-clear{
+  color:var(--ink-3);font-size:13px;width:22px;height:22px;
+  display:grid;place-items:center;border-radius:50%;
+  transition:background var(--dur-fast) var(--ease);
+}
+.search-clear:active{background:var(--glass-3);}
+.search-bar + .sheet-body{padding-top:12px;}
+
+/* ---- 表单 ---- */
+.field{display:flex;flex-direction:column;gap:7px;margin-bottom:15px;flex:1;}
+.field > span{font-size:12.5px;color:var(--muted);font-weight:600;}
+.field > span em{font-style:normal;font-size:11px;color:var(--muted2);font-weight:400;margin-left:5px;}
+.field input{
+  background:var(--glass-2);border:1px solid var(--glass-stroke);border-radius:var(--r-md);
+  padding:12px 14px;color:var(--ink);font-size:14px;outline:none;width:100%;
+  box-shadow:var(--sh-hi);
+  transition:border-color var(--dur) var(--ease), background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.field input::placeholder{color:var(--ink-3);}
+.field input:focus{
+  border-color:rgba(254,44,85,.60);background:var(--glass-3);
+  box-shadow:var(--sh-hi), 0 0 0 3px rgba(254,44,85,.16);
+}
+.field-row{display:flex;gap:11px;}
+.switch-row{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:13px 0;border-top:1px solid var(--line);
+}
+.switch-row > span{font-size:13.5px;font-weight:600;display:flex;flex-direction:column;gap:2px;}
+.switch-row > span em{font-style:normal;font-size:11px;color:var(--muted2);font-weight:400;}
+.switch-row input[type=number]{
+  width:62px;background:var(--glass-2);border:1px solid var(--glass-stroke);
+  border-radius:var(--r-md);padding:8px 9px;color:var(--ink);font-size:13px;outline:none;
+  text-align:center;box-shadow:var(--sh-hi);
+  transition:border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.switch-row input[type=number]:focus{
+  border-color:rgba(254,44,85,.55);
+  box-shadow:var(--sh-hi), 0 0 0 3px rgba(254,44,85,.16);
+}
+/* 「屏蔽小文件」的下拉（#cfMinSize，2026-09-18 加）。
+   ⚠️ `appearance:none` 会把系统那个下拉箭头也一起干掉 —— 在深色背景上系统箭头
+      常常是深色的、几乎看不见，所以这里必须自己画一个白色的小三角。
+      ⚠️ 这个 data-uri 里含 `http://`（SVG 的 xmlns），所以**绝不能**对它用
+         `stripComments`（那是给 JS/Java 的，会把 `//` 之后整行删掉）——
+         css 一律走 `cssCode`（只剥块注释），见 check.js。 */
+.switch-row select{
+  appearance:none;-webkit-appearance:none;
+  flex:none;background:var(--glass-2);border:1px solid var(--glass-stroke);border-radius:var(--r-md);
+  padding:8px 30px 8px 12px;color:var(--ink);font-size:13px;font-family:inherit;outline:none;
+  cursor:pointer;max-width:56vw;
+  box-shadow:var(--sh-hi);
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'><path d='M1 1.5L5 5.5L9 1.5' fill='none' stroke='%23ffffff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat:no-repeat;background-position:right 11px center;background-size:10px 7px;
+}
+.switch-row select:focus{border-color:rgba(254,44,85,.55);}
+/* 下拉展开后的选项：不给 option 上色的话，Android 上会是白底黑字，
+   跟整个设置页的深色主题对不上。 */
+.switch-row select option{background:var(--srf4);color:var(--ink);}
+.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;flex:none;}
+.switch input{display:none;}
+.switch i{
+  width:44px;height:25px;border-radius:14px;background:var(--sw-off);position:relative;transition:.25s var(--ease);
+  box-shadow:inset 0 1px 2px var(--sh-in);
+}
+.switch i::after{
+  content:"";position:absolute;top:2.5px;left:2.5px;width:20px;height:20px;border-radius:50%;
+  background:var(--knob);transition:.25s var(--ease);
+  box-shadow:0 2px 6px var(--sh-in);
+}
+.switch input:checked + i{background:linear-gradient(180deg,var(--brand-hi),var(--brand));box-shadow:inset 0 1px 0 var(--w25),0 0 12px var(--brand-glow);}
+.switch input:checked + i::after{transform:translateX(19px);}
+.switch b{display:none;}
+.seg{display:flex;background:var(--glass);border:1px solid var(--glass-stroke);border-radius:var(--r-pill);padding:3px;gap:2px;
+  -webkit-backdrop-filter:var(--blur-soft);backdrop-filter:var(--blur-soft);
+  box-shadow:var(--sh-hi);}
+.seg button{
+  padding:7px 15px;border-radius:var(--r-pill);font-size:13px;color:var(--muted);
+  transition:background var(--dur) var(--ease), color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.seg button.active{background:var(--glass-3);color:var(--ink);font-weight:600;
+  box-shadow:var(--sh-hi), var(--sh-sm);}
+
+.cf-status{
+  margin:4px 0 14px;padding:12px 14px;border-radius:var(--r-md);font-size:12.5px;line-height:1.6;
+  background:var(--glass);border:1px solid var(--glass-stroke);word-break:break-all;
+  white-space:pre-wrap;
+}
+.cf-status.ok{background:rgba(37,244,238,.09);border-color:rgba(37,244,238,.3);color:var(--cyan-fg);}
+.cf-status.bad{background:rgba(254,44,85,.1);border-color:rgba(254,44,85,.32);color:var(--bad-fg);}
+
+.help{margin:6px 0 20px;font-size:12.5px;color:var(--muted);}
+.help summary{cursor:pointer;padding:10px 0;font-weight:600;color:var(--w82);}
+.help ul{margin:0;padding-left:17px;line-height:1.85;}
+.help li{margin-bottom:8px;}
+.help code{
+  background:var(--w09);padding:1.5px 6px;border-radius:5px;
+  font-size:11.5px;color:var(--code-fg);
+}
+.sheet-actions{display:flex;gap:11px;margin-top:4px;}
+.sheet-actions .btn{flex:1;}
+
+/* ---------------------- 全屏播放器 ---------------------- */
+/* fixed 定位 → 直接铺满整个浏览器窗口，跳出手机外框 */
+.player{position:fixed;inset:0;z-index:60;background:#000;}
+/* 横屏锁不了的设备（老 WebView/ iOS）兜底：整个播放器转 90° 假装横屏 */
+.player.land-rotate{
+  inset:auto;top:0;left:100vw;width:100vh;height:100vw;
+  transform:rotate(90deg);transform-origin:top left;
+}
+.player-bar{
+  position:absolute;top:calc(var(--safe-t) + 12px);left:12px;z-index:70;
+  display:flex;gap:8px;pointer-events:auto;
+}
+.player-btn{
+  height:36px;border-radius:var(--r-pill);background:rgba(20,22,31,.50);
+  display:flex;align-items:center;gap:6px;padding:0 14px;
+  font-size:12.5px;font-weight:650;color:#fff;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.28);
+  /* 同 .tb-icon：这排按钮也压在视频上，去掉 backdrop-filter 免得每帧重取背板。
+     底色本来就是深色半透明（rgba(20,22,31,.5)），去掉模糊照样读得清。 */
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(0,0,0,.18),
+    0 4px 16px rgba(0,0,0,.40);
+  transition:transform var(--dur-fast) var(--ease-spring), background var(--dur-fast) var(--ease);
+}
+.player-btn:active{transform:scale(.92);background:rgba(255,255,255,.24);}
+.player-btn .pb-ic{display:grid;place-items:center;line-height:1;}
+.player-btn .pb-txt{line-height:1;}
+/* 返回图标：手机上保持圆形无文字的小图标 */
+.player-btn.back{width:36px;padding:0;border-radius:50%;justify-content:center;}
+.player-btn.back .pb-txt{display:none;}
+
+/* PC 宽屏：播放器铺满整个浏览器窗口，控件得按桌面尺寸来 ——
+   36px 的小圆点在 1000+ px 宽的画面里几乎看不见，进度条也太细不好拖 */
+@media (min-width:600px){
+  .player-bar{top:calc(var(--safe-t) + 18px);left:18px;}
+  .player-btn{height:38px;border-radius:19px;padding:0 15px;font-size:13.5px;}
+  .player-btn.back{width:auto;}
+  .player-btn.back .pb-txt{display:block;}
+  .progress .track{height:6px;}
+  .progress:hover .track,
+  .progress.scrub .track{height:9px;}
+}
+
+/* 内联竖屏播放：留在手机外框里（.phone 是 relative，absolute inset:0 正好铺满它），
+   观感和首页刷视频一致 —— 不跳出浏览器窗口、不锁横屏。
+   「我的」页点赞 / 收藏点开走这一条 */
+.player.inline{position:absolute;inset:0;}
+/* 本身就是全屏时再摆个「全屏」按钮没意义，只有内联竖屏模式才显示它 */
+.player:not(.inline) [data-act="full"]{display:none;}
+
+/* 沉浸式：藏起右侧栏 / 文案 / 进度条 / 渐变，只留视频和返回键（点击画面切换） */
+.player.immersive .rail,
+.player.immersive .meta,
+.player.immersive .progress,
+.player.immersive .grad-top,
+.player.immersive .grad-bottom{
+  opacity:0;pointer-events:none;transition:opacity .25s ease;
+}
+
+/* 横滑快进/快退的居中提示 */
+.seek-ind{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  z-index:75;display:flex;flex-direction:column;align-items:center;gap:8px;
+  padding:15px 24px;border-radius:var(--r-lg);
+  background:rgba(18,20,28,.55);border:1px solid var(--glass-stroke-2);
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 10px 40px rgba(0,0,0,.5);
+  color:#fff;pointer-events:none;
+}
+.seek-ind[hidden]{display:none;}
+.seek-ico{font-size:30px;line-height:1;font-weight:800;color:#fff;}
+.seek-txt{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.seek-txt b{font-size:19px;font-weight:800;letter-spacing:.5px;}
+.seek-txt span{font-size:12.5px;color:rgba(255,255,255,.82);}
+
+/* ============================================================
+   NAS 目录浏览页（逐层点进去选要刷哪层）
+   ============================================================ */
+.browse{padding-bottom:calc(58px + var(--safe-b));}
+
+.br-head{
+  position:sticky;top:0;z-index:6;
+  background:var(--brhead-bg);-webkit-backdrop-filter:var(--blur-thin);backdrop-filter:var(--blur-thin);
+  border-bottom:1px solid var(--line);
+  padding:calc(var(--safe-t) + 12px) 12px 10px;
+}
+.br-crumb{
+  display:flex;align-items:center;gap:1px;
+  overflow-x:auto;scrollbar-width:none;padding-bottom:3px;margin-bottom:9px;
+}
+.br-crumb::-webkit-scrollbar{display:none;}
+.br-crumb button{
+  flex:none;font-size:13px;font-weight:600;color:var(--muted);
+  padding:5px 9px;border-radius:9px;white-space:nowrap;transition:.15s;
+}
+.br-crumb button:active{background:var(--w10);}
+.br-crumb button.cur{color:var(--ink);background:var(--w11);}
+.br-crumb i{color:var(--w22);font-size:11px;flex:none;font-style:normal;}
+
+.br-tools{display:flex;align-items:center;gap:8px;}
+.br-tool{
+  display:flex;align-items:center;gap:4px;flex:none;
+  height:30px;padding:0 12px;border-radius:var(--r-pill);
+  font-size:12.5px;font-weight:600;color:var(--w90);
+  background:var(--glass-2);border:1px solid var(--glass-stroke);
+  box-shadow:var(--sh-hi);
+  transition:background var(--dur) var(--ease), transform var(--dur-fast) var(--ease-spring);
+}
+.br-tool:active{background:var(--glass-3);transform:scale(.95);}
+.br-tool[disabled]{opacity:.33;pointer-events:none;}
+.br-chk{
+  margin-left:auto;display:flex;align-items:center;gap:6px;flex:none;
+  font-size:12.5px;color:var(--muted);font-weight:600;
+}
+.br-chk input{
+  appearance:none;-webkit-appearance:none;margin:0;flex:none;
+  width:36px;height:21px;border-radius:11px;background:var(--sw-off);
+  position:relative;transition:.2s;
+}
+.br-chk input::after{
+  content:"";position:absolute;top:2px;left:2px;
+  width:17px;height:17px;border-radius:50%;background:var(--knob);transition:.2s;
+}
+.br-chk input:checked{background:var(--brand);}
+.br-chk input:checked::after{transform:translateX(15px);}
+
+.br-body{padding:13px 12px calc(26px + var(--safe-b));}
+.sec{
+  display:flex;align-items:center;gap:8px;
+  margin:0 0 10px;font-size:12.5px;font-weight:700;color:var(--muted);
+}
+.sec b{color:var(--ink);font-size:13.5px;}
+.sec .line{flex:1;height:1px;background:var(--line);}
+.sec + .sec{margin-top:20px;}
+
+/* ---- 文件夹行 ---- */
+.fl{display:flex;flex-direction:column;gap:6px;margin-bottom:20px;}
+.frow{
+  display:flex;align-items:center;gap:11px;
+  padding:11px 12px;border-radius:var(--r-lg);
+  background:var(--glass);border:1px solid var(--glass-stroke);
+  box-shadow:var(--sh-hi),0 4px 16px var(--sh-soft);
+  transition:background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.frow:active{background:var(--glass-2);transform:scale(.99);}
+.frow .fic{
+  width:34px;height:34px;border-radius:var(--r-sm);flex:none;
+  display:grid;place-items:center;color:var(--star);
+  background:var(--tile);
+  box-shadow:var(--sh-hi);
+}
+.frow .ftxt{flex:1;min-width:0;}
+.frow .fname{
+  font-size:14px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.frow .fmeta{font-size:11px;color:var(--muted2);margin-top:2px;}
+.frow .fplay{
+  flex:none;height:29px;padding:0 12px;border-radius:15px;
+  display:flex;align-items:center;gap:4px;
+  background:var(--brand);color:#fff;font-size:12px;font-weight:700;
+  box-shadow:0 4px 14px rgba(254,44,85,.3);
+}
+.frow .fplay:active{transform:scale(.94);}
+.frow .fplay.mute{background:var(--w09);color:var(--muted2);box-shadow:none;}
+.frow .chev{color:var(--w22);flex:none;}
+
+/* ---- 片源文件夹区（首页刷的就是这里的合集） ---- */
+.br-src{
+  background:var(--brsrc-bg);
+  border-bottom:1px solid var(--line);
+  padding:12px 12px 13px;
+  max-height:42vh;overflow-y:auto;      /* 加了很多片源也不会把下面的目录挤没 */
+}
+.br-src .sec{margin-bottom:9px;}
+.src-empty{font-size:12px;color:var(--muted2);line-height:1.8;padding:4px 2px 6px;}
+.src-empty b{color:var(--w80);}
+.srow{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 11px;border-radius:var(--r-lg);
+  background:linear-gradient(180deg,rgba(254,44,85,.14),rgba(254,44,85,.07));
+  border:1px solid rgba(254,44,85,.30);
+  box-shadow:var(--sh-hi),0 4px 16px var(--sh-soft);
+}
+.srow .fic{
+  width:30px;height:30px;border-radius:9px;flex:none;
+  display:grid;place-items:center;color:var(--star);
+  background:var(--tile);
+  box-shadow:inset 0 1px 0 var(--w12);
+}
+.srow .ftxt{flex:1;min-width:0;}
+/* 「本机」片源（strm 自动库，2026-09-20）—— 与 WebDAV 片源**视觉上区分开**：
+   换一种色（青蓝而不是品牌粉），并去掉右侧那一排按钮（它没有「不重扫」也没有
+   「移出」，见 renderSrcList 的注释）。不区分的话用户会以为它是个普通片源，
+   然后奇怪「为什么这个删不掉、为什么没有每次都扫」。 */
+.srow.local{
+  background:rgba(56,138,221,.12);border-color:rgba(56,138,221,.32);
+}
+.srow.local .fic{color:var(--blue-fg);}
+.srow .fname{font-size:13.5px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.srow .fmeta{
+  font-size:10.5px;color:var(--muted2);margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;
+}
+.srow .fplay{
+  flex:none;height:27px;padding:0 11px;border-radius:14px;
+  display:flex;align-items:center;font-size:11.5px;font-weight:700;
+  background:var(--brand);color:#fff;
+}
+.srow .fplay:active{transform:scale(.94);}
+.srow .fplay.ghost{background:var(--w10);color:var(--w86);}
+/* 🔒 「不重扫」开关（2026-09-18 加）。
+   两种状态必须**一眼能分**，否则用户点完不知道自己锁没锁上：
+     · 默认（每次都扫）= ghost，很淡 —— 它就是「常态」，不用抢注意力；
+     · .on（不重扫）    = 实心 + 冷白描边，明显「被钉住了」。
+   不用品牌红：红色在片源栏里是「加入 / 刷」的动作色，跟「锁定」语义相反。 */
+.srow .fskip{
+  flex:none;height:27px;padding:0 11px;border-radius:14px;
+  display:flex;align-items:center;gap:4px;
+  font-size:11.5px;font-weight:700;
+  background:var(--w08);color:var(--w55);
+  border:1px solid transparent;
+}
+.srow .fskip:active{transform:scale(.94);}
+.srow .fskip.on{
+  background:var(--w17);color:var(--ink);
+  border-color:var(--w32);
+}
+.srow .sdel{
+  flex:none;width:27px;height:27px;border-radius:50%;
+  display:grid;place-items:center;font-size:12px;
+  color:var(--w55);background:var(--w09);
+}
+.srow .sdel:active{background:var(--w20);color:var(--ink);}
+.br-src .row2{margin:11px 0 0;}
+.br-src .row2 .btn{flex:1;font-size:12.5px;padding:10px 6px;}
+
+/* ---- 文件夹行上的「＋ 加入片源」 ---- */
+.frow .fadd{
+  flex:none;height:29px;padding:0 11px;border-radius:15px;
+  display:flex;align-items:center;gap:3px;
+  font-size:11.5px;font-weight:700;
+  background:rgba(254,44,85,.9);color:#fff;
+  box-shadow:0 4px 14px rgba(254,44,85,.26);
+}
+.frow .fadd:active{transform:scale(.94);}
+.frow .fadd.in{background:var(--w10);color:var(--w62);box-shadow:none;}
+
+/* ---- 浏览器里的视频网格 ---- */
+.browse .grid{padding:0;gap:3px;grid-template-columns:repeat(3,1fr);}
+.browse .grid .cell{border-radius:5px;}
+
+/* ---- 设置面板补充 ---- */
+.row2{display:flex;gap:10px;margin:0 0 14px;}
+.row2 .btn{flex:1;font-size:13px;padding:11px 6px;}
+.btn.full{width:100%;margin-bottom:8px;}
+.common{margin-top:4px;border-top:1px solid var(--line);}
+
+/* ---- 设置页的两步分区（2026-09-18：先登录、后选文件夹） ----
+   #stepPick 默认带 hidden，登录成功才由 app.js 拿掉。
+   没登录时整块不该占位，所以用 [hidden] 强制 display:none。 */
+.step[hidden]{display:none;}
+.step + .step{margin-top:16px;padding-top:15px;border-top:1px solid var(--line);}
+.step-head{display:flex;align-items:center;gap:8px;margin-bottom:11px;}
+.step-head b{
+  flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;
+  font-size:11.5px;font-weight:700;color:#111;background:var(--gold);
+  box-shadow:0 2px 8px rgba(255,197,61,.35), inset 0 1px 0 rgba(255,255,255,.5);
+}
+.step-head span{font-size:13.5px;font-weight:650;color:var(--w92);}
+
+/* ---- 「要刷哪个文件夹」选择器 ---- */
+.pick{display:flex;gap:8px;align-items:stretch;}
+.pick-btn{
+  flex:1;min-width:0;display:flex;align-items:center;gap:9px;text-align:left;
+  padding:12px 14px;border-radius:var(--r-lg);color:var(--ink);font-size:13.5px;
+  background:var(--glass);border:1px solid var(--glass-stroke);
+  box-shadow:var(--sh-hi),0 4px 16px var(--sh-soft);
+  transition:background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.pick-btn:active{background:var(--glass-2);transform:scale(.99);}
+.pick-btn svg{flex:none;color:var(--star);}
+.pick-btn span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pick-test{
+  flex:none;padding:0 16px;border-radius:var(--r-pill);font-size:12.5px;
+  background:var(--glass-2);border:1px solid var(--glass-stroke);color:var(--muted);
+  box-shadow:var(--sh-hi);
+}
+.pick-test:active{background:var(--w13);}
+.cap-line{font-size:11.5px;color:var(--muted2);margin-top:8px;line-height:1.65;}
+/* 「格式支持」那行小字（#cfFfmpeg）—— 设置页里唯一一处如实交代播放能力的地方，
+   三种颜色分别表示「有转码」「只能原生播」「连探测都说不上话」。 */
+.cap-line.ok{color:var(--cap-ok);}
+.cap-line.warn{color:var(--cap-warn);}
+.cap-line.bad{color:var(--cap-bad);}
+.cap-line code{
+  font-size:11px;padding:1px 4px;border-radius:4px;
+  background:var(--w08);color:var(--w82);
+}
+.pick-hint{font-size:11.5px;color:var(--muted2);margin-top:7px;line-height:1.6;}
+.pick-hint b{color:var(--w82);}
+/* `.field` 里那行小字说明（WebDAV 地址下面、.strm 两个输入框下面都用它）。
+   ⚠️ 这个类**原本没有样式** —— <p> 一直吃浏览器默认段落大小（16px+），
+   跟周围 11~12px 的说明完全不成比例。以前文案长、折好几行，看着像正文，
+   2026-09-20 精简成一句话后彻底暴露成大号字。
+   和 .pick-hint 保持同一档，别再各写各的。 */
+.field .hint{font-size:11.5px;color:var(--muted2);margin:6px 0 0;line-height:1.6;font-weight:400;}
+.field .hint b{color:var(--w82);font-weight:600;}
+
+/* ---- 内置网盘（CloudDrive2 引擎）的状态行 ----
+   只有 APK 版那块才显示（见 app.js 的 initCd2Panel）。
+   三态：启动中（灰）/ 已就绪（绿）/ 起不来（红）—— 颜色只在这里区分，
+   文字在 JS 里给，别把状态写死在 CSS 里。 */
+.ol-status{font-size:12px;line-height:1.6;color:var(--muted2);margin:2px 0 10px;}
+.ol-status.ok{color:var(--ol-ok);}
+.ol-status.bad{color:var(--ol-bad);}
+
+/* ---- 设置页里的「当前片源」清单（只读，增删在「文件夹」页做） ---- */
+.cf-dirs{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
+.cf-dir{
+  display:flex;align-items:center;gap:8px;
+  padding:9px 11px;border-radius:var(--r-md);
+  background:var(--glass);border:1px solid var(--glass-stroke);
+  box-shadow:var(--sh-hi);
+  font-size:12.5px;
+}
+.cf-dir .cfd-ic{color:var(--star);flex:none;display:grid;place-items:center;}
+.cf-dir .cfd-name{font-weight:650;flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cf-dir .cfd-path{color:var(--muted2);font-size:11px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cf-dir-empty{font-size:11.5px;color:var(--muted2);line-height:1.7;padding:2px 0;}
+.cf-dir-go{width:100%;margin-top:8px;font-size:12.5px;padding:10px;}
+
+/* ---- .strm 自动库（2026-09-20）：监控片源勾选清单 ----
+   结构与 .cf-dir 同款（复用行高/圆角/边框），差别是行首是 checkbox：
+   accent-color 染成主题青色；label 整行可点（原生 checkbox 的点击热区太小）。 */
+label.cf-dir.strm-job{cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.cf-dir.strm-job input[type=checkbox]{
+  flex:none;width:16px;height:16px;margin:0;
+  accent-color:#25f4ee;
+}
+.cf-dir.strm-job input[type=checkbox]:checked + .cfd-name{color:var(--cyan-fg);}
+
+/* ---- .strm 自动库（2026-09-20 二次改版）
+   A. 保存位置：**只读**展示固定目录（不再是输入框）。等宽字体 + 可换行，
+      长路径不会被截成「/storage/emulated/0/Android/dat…」看不出是哪。
+   B. 监控清单行右侧多一个 ✕（只从监控清单删，不动片源）。 */
+.ro-path{
+  margin-top:6px;padding:10px 11px;border-radius:var(--r-md);
+  background:var(--w045);border:1px solid var(--line);
+  font-size:11.5px;line-height:1.5;color:var(--cyan-fg);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  word-break:break-all;
+}
+.strm-box{margin-bottom:8px;}
+.cf-dir.strm-job .sj-del{
+  flex:none;width:24px;height:24px;border-radius:50%;
+  color:var(--muted);font-size:13px;display:grid;place-items:center;
+  background:transparent;border:none;padding:0;
+}
+.cf-dir.strm-job .sj-del:active{background:var(--w10);color:var(--ol-bad);}
+/* 两步删除的「确认？」态（2026-09-20）：第一下只是武装 —— 按钮变宽、染品牌红，
+   写着「确认？」；再点一下才真删。3.2 秒不点自动收回（见 app.js sjDisarm）。
+   ⚠️ :active 也要压成不掉色，否则按下去的瞬间闪回灰的，像没生效。 */
+.cf-dir.strm-job .sj-del.armed{
+  width:auto;min-width:46px;padding:0 9px;border-radius:12px;
+  background:var(--brand);color:#fff;font-size:12px;font-weight:600;
+}
+.cf-dir.strm-job .sj-del.armed:active{background:var(--brand);color:#fff;}
+
+/* ---- 目录选择器（第 4 步「＋ 添加文件夹」打开的弹层）---- */
+.dp-bar{display:flex;gap:9px;margin:10px 0;}
+.dp-bar .btn{flex:1;}
+.dp-path{
+  font-size:11px;color:var(--muted2);line-height:1.5;
+  padding:0 2px 10px;word-break:break-all;
+}
+#dpList .frow{cursor:pointer;}
+
+/* ---- 浏览页的空态 / 加载 ---- */
+.br-state{
+  text-align:center;color:var(--muted2);font-size:13px;
+  padding:48px 24px;line-height:2;
+}
+.br-state .big{font-size:40px;display:block;margin-bottom:10px;}
+.br-state b{color:var(--w82);}
+.br-state .btn{margin-top:14px;display:inline-block;}
+.br-loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:44px 0;color:var(--muted2);font-size:13px;}
+
+/* ---- 片源列表 ---- */
+
+
+/* ============================================================
+   主题：深色 / 浅色 / 跟随系统（2026-09-21）
+   ------------------------------------------------------------
+   怎么工作：
+     · app.js 把结果写到 <html data-theme="dark|light">。值是**解析后**的
+       两档（「跟随系统」在 JS 侧按 prefers-color-scheme 折成 dark/light），
+       所以 CSS 这边永远不用管系统偏好。
+     · index.html 的 <head> 里有一小段内联脚本先跑一遍，避免首屏先闪一下深色。
+     · 这里**只覆盖变量值**，不重写任何规则 —— 界面规则都已经走 var(--xxx)。
+     · 品牌色（--brand / --cyan）与「压在视频上」的硬编码**故意不动**。
+
+   为什么写 `html[data-theme=...]` 而不是裸 `[data-theme=...]`：
+     两者都是属性选择器，但默认值定义在 `:root`（= html，特异性 0,1,0）。
+     裸属性选择器也是 0,1,0，只能靠「写在后面」赢 —— 以后有人把这段往上挪
+     就会静默失效。`html[data-theme="light"]` 是 0,1,1，稳赢，与位置无关。
+   ============================================================ */
+html[data-theme="light"]{
+  /* ---- 基础 ---- */
+  --bg:#f4f5f7;                      /* .phone 的底；首页视频区自己另有 #000 */
+  --fg:#161823;
+  --muted:rgba(22,24,35,.66);
+  --muted2:rgba(22,24,35,.46);
+  --sheet:#fff;
+  --sheet2:#eceef2;
+  --line:rgba(22,24,35,.10);
+  /* ---- 液态玻璃：半透明近黑 → 白霜玻璃 ---- */
+  --glass:rgba(22,24,35,.05);
+  --glass-2:rgba(22,24,35,.09);
+  --glass-stroke:rgba(22,24,35,.10);
+  --glass-stroke-2:rgba(22,24,35,.14);
+  --glass-dark:rgba(255,255,255,.82);
+  --glass-dark-2:rgba(255,255,255,.94);
+  --sheen:linear-gradient(180deg,rgba(255,255,255,.95),rgba(255,255,255,0) 42%);
+  /* ---- 表面 ---- */
+  --page-bg:#f4f5f7;
+  --stage-bg:#e8eaee;
+  --bezel:#d7dae0;
+  --bezel-2:#c3c8d1;
+  /* 顶栏 / 悬浮徽标**故意不在这个名单里** —— 它们不跟随主题，见 .topbar 上面的注释 */
+  --srf:#f4f5f7;
+  --srf2:#e9ebef;
+  --srf3:#dfe2e8;
+  --srf4:#fff;
+  --sw-off:#cfd3db;
+  --knob:linear-gradient(180deg,#fff,#f2f3f6);
+  --tile:linear-gradient(135deg,#e4e7ee,#d2d6e0);
+  --tabbar-bg:linear-gradient(180deg,rgba(255,255,255,.86),rgba(244,245,247,.97));
+  --brhead-bg:rgba(244,245,247,.96);
+  --brsrc-bg:rgba(255,255,255,.97);
+  /* toast 反过来：浅色界面上用深色胶囊（和深色主题下正好互换） */
+  --toast-bg:rgba(24,26,35,.94);
+  --toast-fg:#fff;
+  --ink:#161823;
+  /* ---- 强调色：原来那几个是给深底调的，白底上对比度不够，整体压深 ---- */
+  --star:#C78400;                    /* #FFC53D 在白底上几乎看不见 */
+  --cyan-fg:#0B7285;                 /* 原来是 #a8f7f4（浅青） */
+  --blue-fg:#1D6FB8;
+  --code-fg:#B3214A;
+  --bad-fg:#B3214A;
+  --cap-ok:#128A47; --cap-warn:#9A6A00; --cap-bad:#D32029;
+  --ol-ok:#128A47; --ol-bad:#D32029;
+  /* ---- 投影：黑投影在白底上又脏又重，换成淡灰 ---- */
+  --sh-soft:rgba(22,24,35,.07);
+  --sh-mid:rgba(22,24,35,.10);
+  --sh-big:rgba(22,24,35,.16);
+  --sh-in:rgba(22,24,35,.10);
+  /* ---- 白色透明刻度 → 深色透明刻度（同档位换个方向）----
+     浅色下「越白越看不见」，所以填色与文字都要反过来用黑。
+     档位 1:1 保留，这样 .field input 的 6% 底、.cf-status 的 5% 底、
+     .srow .fskip 的 8% 底之间的相对深浅关系完全不变。
+     ⚠️ 有一处**故意偏离 1:1**：.045/.05/.06 三个几乎看不见的档位在浅色下
+        被抬到 .035/.04/.05 也依然看不见 —— 所以统一乘约 0.8 再取整，
+        让输入框、状态条的底真的看得见。其余档位保持原值。 */
+  --w045:rgba(22,24,35,.05);
+  --w05:rgba(22,24,35,.05);
+  --w06:rgba(22,24,35,.06);
+  --w07:rgba(22,24,35,.06);
+  --w08:rgba(22,24,35,.07);
+  --w09:rgba(22,24,35,.08);
+  --w10:rgba(22,24,35,.09);
+  --w11:rgba(22,24,35,.10);
+  --w12:rgba(22,24,35,.10);
+  --w13:rgba(22,24,35,.11);
+  --w16:rgba(22,24,35,.13);
+  --w17:rgba(22,24,35,.14);
+  --w18:rgba(22,24,35,.15);
+  --w20:rgba(22,24,35,.16);
+  --w22:rgba(22,24,35,.18);
+  --w25:rgba(22,24,35,.20);
+  --w28:rgba(22,24,35,.22);
+  --w30:rgba(22,24,35,.24);
+  --w32:rgba(22,24,35,.26);
+  --w40:rgba(22,24,35,.34);
+  --w45:rgba(22,24,35,.40);
+  --w55:rgba(22,24,35,.52);
+  --w62:rgba(22,24,35,.60);
+  --w80:rgba(22,24,35,.76);
+  --w82:rgba(22,24,35,.78);
+  --w86:rgba(22,24,35,.82);
+  --w90:rgba(22,24,35,.86);
+  --w92:rgba(22,24,35,.90);
+
+  /* ---- 液态玻璃 v2 令牌的浅色侧（2026-09-22）----
+     同样**只覆盖值**，不加任何规则。
+     ⚠️ 上面那批「白色刻度 → 深色刻度」是有意为之：浅底上「越白越看不见」，
+        所以玻璃也是**深色调**的（rgba(22,24,35,α)）而不是白色 ——
+        白玻璃铺在 #f4f5f7 的页面上等于没有。这里新增的两档跟上这个方向，
+        档位与 --w13 / --w18 / --w30 对齐，保持三层的相对深浅关系。
+     ⚠️ 镜面层（--specular）是例外：它必须是**白**的 —— 它模拟的是一束
+        打在玻璃上的光，浅色下就是要在淡灰玻璃上擦出一道亮痕；
+        反过来用深色就成了污渍。 */
+  --glass-3:rgba(22,24,35,.13);
+  --glass-4:rgba(22,24,35,.18);
+  --glass-dark-3:rgba(252,252,254,.97);
+  --glass-stroke-3:rgba(22,24,35,.30);
+
+  --specular:linear-gradient(140deg,
+      rgba(255,255,255,.55) 0%,
+      rgba(255,255,255,.20) 26%,
+      rgba(255,255,255,0) 52%,
+      rgba(255,255,255,.14) 100%);
+
+  --sh-sm:0 2px 8px rgba(60,70,100,.10);
+  --sh-md:0 8px 24px rgba(60,70,100,.14);
+  --sh-lg:0 18px 48px rgba(60,70,100,.18);
+  --sh-hi:inset 0 1px 0 rgba(255,255,255,.95);
+  --sh-hi-b:inset 0 -1px 0 rgba(22,24,35,.05);
+
+  --ink-2:rgba(22,24,35,.70);
+  --ink-3:rgba(22,24,35,.50);
+}
+
+/* ---- 浅色专属的小修补（变量覆盖不到的地方）---- */
+/* 下拉箭头：深色主题画的是白三角（见 .switch-row select 的注释），浅底上得换深三角 */
+html[data-theme="light"] .switch-row select{
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'><path d='M1 1.5L5 5.5L9 1.5' fill='none' stroke='%23161823' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+}
+/* 面板顶边：深色主题那道 12% 白高光在白面板上是看不见的灰线，
+   换成一道真正的白色高光 + 更淡的投影 */
+html[data-theme="light"] .sheet{
+  box-shadow:0 -1px 0 rgba(255,255,255,.9) inset, 0 -18px 60px rgba(22,24,35,.16);
+}
+
+/* ---- 外观那一行的分段控件要按内容定宽 ----
+   `.seg button` 默认是 `flex:1`（为「收藏 / 点赞」和「画面填充」那种**等宽**两档设计的）。
+   外观是**三档**、而且其中一档是 4 个字的「跟随系统」—— 三档均分下来每个只有 66px，
+   4 个字（52px）+ 左右 15px 内边距（30px）= 82px 放不下，会折成两行，
+   整行高度被撑高、和左边的「外观」两个字对不齐（真机截图发现的）。
+   改成按内容定宽 + 禁止折行：三个按钮合计 188px，加上左侧标签仍远小于 328px 可用宽。 */
+#themeSeg button{flex:none;white-space:nowrap;padding:7px 12px;}
+
+/* ============================================================
+   底栏：**跟随主题**（2026-09-21 二次修）
+   ------------------------------------------------------------
+   🔴 这里原来有一条 `.phone[data-nav="home"] .tabbar{...}`，把首页底栏钉死成深色，
+      理由是「它压在视频上，变白就看不清图标」。
+      **用户看到后直接圈出来说「白色主题下首页这里还是黑的」** —— 这条被撤掉了。
+
+   为什么当初的担心不成立：底栏在浅色下用的是**接近实底的白渐变 + 深色文字**，
+   压在黑视频上反而对比度更高、更清楚（跟顶栏同一个道理，见 .topbar 上面的注释）。
+   「压在视频上就必须深色」这个直觉只在**半透明**的情况下才成立 ——
+   一旦把底色做成接近实底，就不再有可读性问题了。
+
+   ⚠️ 别再按「它压在视频上」把它改回深色。`phone.dataset.nav` 也因此不再需要，
+   `setNav()` 里那行已经删了。
+   ============================================================ */
+
+/* 转圈：.spinner 同时用在「压视频上的 .loading」和「浅底页面上的 .br-loading」。
+   基础规则跟随主题（浅底上要深色环），.loading 里那份单独钉回浅色环。
+   ⚠️ 必须把 border-top-color 也写一遍 —— border-color 简写会把上面那条
+      border-top-color:var(--brand) 一起覆盖掉，漏了就没有品牌色那一小段了。 */
+.loading .spinner{border-color:rgba(255,255,255,.18);border-top-color:var(--brand);}
+
+/* 压在视频 / 黑色蒙层上的**次要文字**要固定成浅色。
+   这三处的容器底永远是深的（.vph 在视频上、.v-err 是 rgba(0,0,0,.72) 蒙层、
+   .loading 是 #000），而 --muted 在浅色主题下会变成深灰 → 深灰压深底 = 看不见。
+   ⚠️ 这几个选择器**不能**改成 var(--muted)：值就是它深色下的那份，写死才两个主题都对。 */
+.item .vph,
+.v-err .d,
+.loading p{color:rgba(255,255,255,.62);}
+

@@ -1,0 +1,68 @@
+# douyin-nas 解码服务 —— 飞牛 NAS / 群晖 / 任意 Docker 环境
+# =====================================================================================
+#  用法
+# =====================================================================================
+#   1. 改下面 environment 里的 DAV_URL / DAV_USER / DAV_PASS（你的 NAS 片库地址）
+#   2. docker compose up -d --build
+#   3. 浏览器开 http://<NAS的IP>:8099/api/caps 应当看到 {"ok":true,"canTranscode":true,...}
+#   4. 在 App / 电脑版的「设置」里把「解码服务器」填成 http://<NAS的IP>:8099
+#
+#  ⚠️ 端口 8099 是手机内嵌服务在用的端口，但那是**手机本地**的 8099，
+#     和这里的 NAS 8099 不是一回事，不冲突。要改就改左边那个（映射到宿主的端口）。
+# =====================================================================================
+
+services:
+  decode:
+    build: .
+    image: douyin-nas-decode:latest
+    container_name: douyin-nas-decode
+    restart: unless-stopped
+
+    ports:
+      # 左边 = 宿主（飞牛）端口，右边 = 容器内端口（和 Dockerfile 的 EXPOSE / PORT 一致）
+      - "8099:8099"
+
+    environment:
+      # ── WebDAV 片库配置（和电脑版 server.js 的 data/config.json 填一样的值）──
+      # 填 NAS 自己的地址。注意在**容器里**要能访问到，
+      # 所以别写 127.0.0.1（那是容器自己），要写 NAS 的局域网 IP 或宿主 hostname。
+      DAV_URL: "http://192.168.1.100:5005"
+      DAV_USER: "boki"
+      DAV_PASS: ""
+
+      # ── 可选调参 ──
+      # 限速投递速率（字节/秒）。默认 4MB/s ≈ 32Mbps，够 1080p 两倍速播放。
+      # 局域网很快可以调到 8388608（8MB/s）；Wi-Fi 差就降到 2097152。
+      # PACE_RATE: "4194304"
+      # 起播/快进后先灌多少字节把缓冲填满，默认 4MB。
+      # PACE_BURST: "4194304"
+      # 日志：info | quiet
+      # LOG_LEVEL: "info"
+
+    volumes:
+      # 挂出来是为了能放 config.json（用环境变量配好之后这个卷可以不要）
+      - ./data:/app/data
+
+    # ── 硬件编码（可选）────────────────────────────────────────────────
+    # 飞牛如果在 Intel 核显 / AMD 核显的机器上跑，挂 /dev/dri 就能用 h264_qsv /
+    # h264_vaapi，CPU 占用几乎为零。**没挂也会正常工作**，只是走 libx264 软编。
+    # 探查是否有核显：在飞牛 SSH 里执行 `ls -l /dev/dri`
+    #
+    # devices:
+    #   - /dev/dri:/dev/dri
+    #
+    # NVIDIA 独显则用下面这段（宿主需装 nvidia-container-toolkit）：
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8099/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

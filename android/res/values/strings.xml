@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NAS 短视频</string>
+
+    <string name="setup_hint">填写运行着 douyin-nas 服务的那台电脑地址\n手机要和它在同一个 WiFi 下</string>
+    <string name="setup_url_hint">http://192.168.1.100:8080</string>
+    <string name="setup_connect">连接</string>
+    <string name="setup_tip">这个地址在哪找：启动服务后，终端里「手机访问」那一行就是。\n\n想换地址：按返回键 → 服务器设置。</string>
+
+    <string name="menu_reload">重新加载</string>
+    <string name="menu_server">服务器设置</string>
+    <string name="menu_exit">退出</string>
+    <string name="menu_cancel">取消</string>
+</resources>

@@ -1,0 +1,53 @@
+#!/bin/bash
+# 应用设置变更后：把新选项写回 app.conf 并重启服务（否则改了不生效）
+#
+# ⚠️ 只有向导里真的传了值才覆盖 —— 免得某次没传就把用户设置冲成默认值。
+
+CONF="${TRIM_PKGETC}/app.conf"
+NODE_BIN="${TRIM_APPDEST}/server/node"
+PORT_DEFAULT=8099
+
+# 先读回现有值当兜底
+PORT_NUM="${PORT_DEFAULT}"
+ALLOW_REG="1"
+if [ -r "${CONF}" ]; then
+    # shellcheck disable=SC1090
+    . "${CONF}"
+    [ -n "${PORT}" ] && PORT_NUM="${PORT}"
+    [ -n "${SYNC_ALLOW_REGISTER}" ] && ALLOW_REG="${SYNC_ALLOW_REGISTER}"
+fi
+
+# 向导里改了才覆盖
+if [ -n "${wizard_allow_register:-}" ]; then
+    case "$(echo "${wizard_allow_register}" | tr 'A-Z' 'a-z')" in
+        true | 1 | yes | on) ALLOW_REG="1" ;;
+        *) ALLOW_REG="0" ;;
+    esac
+fi
+
+cat > "${CONF}" <<EOF
+# NAS 短视频 · 应用配置（应用设置生成）
+# 直接改这里也行，但要重启应用才生效。
+PORT=${PORT_NUM}
+SYNC_ALLOW_REGISTER=${ALLOW_REG}
+EOF
+
+# 改动要重启进程才生效。
+# 🔴 判据是「改之前是不是在跑」而不是无脑重启：
+#    无脑 start 会把用户手动停掉的应用又拉起来；只 stop 不 start 则依赖飞牛代拉 ——
+#    万一它不拉，用户改个设置应用就再也起不来了。照原状态还原最不容易出错。
+was_running=0
+"$(dirname "$0")/main" status >/dev/null 2>&1 && was_running=1
+
+if [ "${was_running}" = "1" ]; then
+    "$(dirname "$0")/main" stop >> "${TRIM_PKGVAR}/info.log" 2>&1
+    "$(dirname "$0")/main" start >> "${TRIM_PKGVAR}/info.log" 2>&1
+    tail_note="已重启"
+else
+    tail_note="原本未运行，保持停止"
+fi
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置已更新：allow_register=${ALLOW_REG}（${tail_note}）" \
+    >> "${TRIM_PKGVAR}/info.log" 2>/dev/null
+
+exit 0

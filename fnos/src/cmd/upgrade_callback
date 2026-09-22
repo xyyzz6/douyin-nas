@@ -1,0 +1,12 @@
+#!/bin/bash
+# 升级后：重新补可执行位（新包里的文件权限可能是打包环境带过来的）
+# 数据都在 ${TRIM_PKGVAR}，覆盖安装不会动它。
+NODE_BIN="${TRIM_APPDEST}/server/node"
+
+[ -f "${NODE_BIN}" ] && chmod +x "${NODE_BIN}" 2>/dev/null
+chmod +x "$(dirname "$0")"/* 2>/dev/null
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 升级完成：${TRIM_OLD_APPVER:-?} → ${TRIM_APPVER:-?}（数据保留）" \
+    >> "${TRIM_PKGVAR}/info.log" 2>/dev/null
+
+exit 0

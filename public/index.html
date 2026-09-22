@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NAS 短视频">
+<title>NAS 短视频</title>
+<!-- 主题：**必须在样式表之前**跑，否则首屏会先按默认（深色）画一帧再翻成浅色，
+     会闪一下（切到浅色后每次刷新都看得见）。
+     它只做一件事：把 <html> 的 data-theme 定下来，取值只有 dark / light 两档 ——
+     「跟随系统」在这里就按 prefers-color-scheme 折成具体档位。
+     ⚠️ 这段逻辑在 app.js 里有同一份（themeResolved / themeChoice），两处必须一致：
+        localStorage 键是 `nasdy.theme`，取值 `dark|light|auto`，缺省 `dark`。
+        改一处记得改另一处 —— check.js 有断言钉着键名与档位。 -->
+<script>
+(function () {
+  var t = 'dark';
+  try {
+    var v = JSON.parse(localStorage.getItem('nasdy.theme'));
+    if (v !== 'light' && v !== 'auto') v = 'dark';
+    if (v === 'auto') {
+      /* 🔴 「跟随系统」要问**原生**，不能只信 prefers-color-scheme：
+         Android WebView 的那个媒体查询取自 **App 自己的主题**（本项目是
+         Theme.Material 深色主题），跟系统设置无关 —— 实测系统切成浅色它仍是 dark，
+         只靠媒体查询这一档会永远停在深色。浏览器 / PC 没有桥，才回落到媒体查询。 */
+      var sys = '';
+      try { if (window.NasBridge && window.NasBridge.systemTheme) sys = window.NasBridge.systemTheme(); } catch (e) { sys = ''; }
+      if (sys !== 'light' && sys !== 'dark') {
+        sys = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+      }
+      v = sys;
+    }
+    t = v;
+  } catch (e) { /* 读不到就用深色，和以前一样 */ }
+  document.documentElement.setAttribute('data-theme', t);
+  var m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute('content', t === 'light' ? '#f4f5f7' : '#000000');
+})();
+</script>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="stage">
+<div class="phone" id="phone">
+
+  <!-- ================= 顶部 ================= -->
+  <!-- 顶栏只在首页显示（setNav 里 display:none 掉）。
+       ⚠️ 原来这里还有个 ☰ 「菜单」按钮（#btnMenu），但**从来没有绑过任何事件**、
+       也没有对应的抽屉面板 —— 是个纯装饰的假按钮，点了没反应。
+       它比别的更坑：在「我的」页顶栏被 display:none 掉后 rect 变成 0×0，
+       但外框的圆角还画着，看着像个能点的按钮，实际是块死区。
+       直接删掉，别再加回来。 -->
+  <header class="topbar" id="topbar">
+    <!-- ⚠️ 这里原来是 <button>，末尾还挂着一个 ⌄ 小箭头（暗示「点开能切换片源」）。
+         但 #topTitle 全项目**没有任何事件绑定** —— 点了什么都不发生，
+         和上面那个已删的 #btnMenu 是同一类「假按钮」，箭头更是在撒谎。
+         2026-09-18 按用户要求去掉箭头；顺手把 button 降级成 div：
+         留着 :active 的按压反馈只会让人更以为它能点。
+         现在它就是一行静态标题 = 名字 + 数字角标。别把箭头加回来。 -->
+    <!-- 左上角「重启应用」按钮。
+         📌 2026-09-19：它原来是「刷新片库」（走 main.rescan()），用户随后要求改成
+            **重启 App** —— 现在点它是把整个应用重新加载一遍：
+            APK 走 NasBridge.restartApp() → Activity recreate()（onDestroy 里已有
+            nas.stop() 放开 8099 端口，onCreate 再重新起服务，所以不会端口冲突）；
+            浏览器 / PC 版没有原生桥，回退 location.reload()。
+         ⚠️ 位置在 CSS 里**绝对定位**到左边（.tb-restart）——
+            .topbar 是 justify-content:flex-end，直接插进来会被排到右边跟搜索/换一批挤一起。
+         ⚠️ 「重扫片库」这个**动作没删**，入口回到「我的」页那个「重新扫描」
+            （app.js 的 runRefresh()）。别把那条路也一起删了。 -->
+    <button class="tb-icon tb-restart" id="btnRestart" aria-label="重启应用" title="重启应用">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M20 12a8 8 0 11-2.34-5.66M20 4v4h-4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="top-title" id="topTitle">
+      <span class="tt-name" id="topName">本地视频</span>
+      <!-- 视频数量就贴在片源名旁边（以前是浮在下面的一条独立角标，
+           离标题太远、还容易和「点击开启声音」撞在一起）。
+           独立成 span 是为了让 updateTitle() 能安全地只改名字、不碰这个数字。 -->
+      <span class="tt-count" id="topCount" hidden></span>
+    </div>
+    <button class="tb-icon" id="btnSearch" aria-label="搜索">
+      <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="tb-icon" id="btnShuffle" aria-label="换一批" title="换一批（重新随机顺序）">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M16 3.5l4 4-4 4M20 7.5h-2.4c-1.2 0-2.3.6-3 1.7l-5.2 7.6c-.7 1-1.8 1.7-3 1.7H4M4 7.5h2.4c1.2 0 2.3.6 3 1.7l.7 1M16 20.5l4-4-4-4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </header>
+
+  <div class="mode-badge" id="modeBadge" hidden></div>
+  <button class="sound-hint" id="soundHint">🔇 点击开启声音</button>
+
+  <!-- 🗑️ 这里原来有个下拉刷新指示器（#ptr / #ptrTxt）。
+       2026-09-18 按用户要求把下拉刷新整个功能删掉了 ——
+       HTML、CSS（.ptr* / .phone.ptr-pulling / .phone.ptr-anim）、
+       JS（pull/ptrGesture/PTR_*/ptrDetect/ptrMove/ptrEnd/ptrCancel/pullPaint/
+       pullReset/ptrHost/canPull，以及那四条 touch 监听）全部移除。
+       ⚠️ 「重扫片库」这个**动作**没删，入口是「我的」页那个「重新扫描」按钮
+       （app.js 里的 runRefresh()）。别把这一块加回来。 -->
+
+  <!-- ================= 首页信息流 ================= -->
+  <main class="feed" id="feed"></main>
+
+  <div class="loading" id="loadingView">
+    <div class="spinner big"></div>
+    <p id="loadingText">正在读取视频列表…</p>
+  </div>
+
+  <div class="empty" id="emptyView" hidden>
+    <div class="empty-emoji">📼</div>
+    <h2 id="emptyTitle">还没有视频</h2>
+    <p id="emptyDesc">连接你的 NAS，把收藏的片子刷起来</p>
+    <div class="empty-actions">
+      <button class="btn primary" id="emptyConfig">转到文件夹</button>
+      <button class="btn ghost" id="emptyDemo">数据源设置</button>
+      <!-- 只在「内置引擎里 CD2 账号没登录」时亮出来（见 app.js loadLibrary 的 engineLogin 分支）。
+           那种 401 重填密码没用，唯一出路是去管理页登录一次 —— 所以把入口直接摆到这里。 -->
+      <button class="btn primary" id="emptyEngineBtn" hidden>打开 CloudDrive2 管理</button>
+    </div>
+  </div>
+
+  <!-- ============ 我的页（收藏 / 点赞列表就长在这里面） ============ -->
+  <section class="page" id="pageMe" hidden>
+    <div class="me-top">
+      <!-- 左上角：账号与同步入口 -->
+      <button class="me-account" id="meAccount" aria-label="账号与同步" title="账号与同步">
+        <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="8.5" r="5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M4 21c0-5 4-8 8-8s8 3 8 8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <!-- 右上角：设置入口（预留，方便后续加功能） -->
+      <button class="me-settings" id="meSettings" aria-label="设置" title="设置">
+        <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33 1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82 1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
+      </button>
+      <!-- 头像 / 名字都可点：点头像换头像（文件选择器），点名字改名（内联输入框）。
+           2026-09-19 删掉了「NAS 短视频号」那行 —— 纯装饰还占地方，用户明确不要。 -->
+      <div class="me-avatar" id="meAvatar" title="点击更换头像">N</div>
+      <input type="file" id="avatarFile" accept="image/*" hidden>
+      <div class="me-name" id="meName" title="点击改名">NAS 影迷</div>
+      <input id="nameEdit" class="name-edit" hidden maxlength="20"
+             spellcheck="false" autocomplete="off" placeholder="给自己起个名字">
+      <div class="me-stats">
+        <button type="button" id="goFav"><b id="statFav">0</b><span>收藏</span></button>
+        <button type="button" id="goLike"><b id="statLike">0</b><span>点赞</span></button>
+        <button type="button" id="goVid"><b id="statVid">0</b><span>视频</span></button>
+      </div>
+      <div class="me-btns">
+        <button class="btn primary" id="meConfig">数据源设置</button>
+        <button class="btn ghost" id="meRescan">重新扫描</button>
+      </div>
+      <div class="me-src" id="meSrc"></div>
+      <div class="me-thumb" id="meThumb"></div>
+      <!-- 版本号（2026-09-20）：打包脚本每次自动涨号，这里只读回显。
+           用途是「截图给我看就知道手机上跑的是哪版」，省得靠猜。
+           ⚠️ 值来自 /api/config 的 versionName（后端从 PackageManager 读 manifest 里那份）。 -->
+      <div class="me-ver" id="meVer" hidden></div>
+    </div>
+
+    <div class="me-list-head" id="meListHead">
+      <h2 id="meListTitle">我点赞的</h2>
+      <span id="meListCount">0 个视频</span>
+    </div>
+    <div class="seg" id="meSeg">
+      <button type="button" data-tab="like" class="on">❤️ 点赞</button>
+      <button type="button" data-tab="fav">⭐ 收藏</button>
+    </div>
+    <div class="grid" id="meGrid"></div>
+    <div class="grid-empty" id="meEmpty" hidden></div>
+  </section>
+
+  <!-- ============ NAS 目录浏览（在 WebDAV 里逐层点，选中哪层就刷哪层） ============ -->
+  <section class="page browse" id="pageBrowse" hidden>
+    <div class="br-head">
+      <div class="br-crumb" id="brCrumb"></div>
+      <div class="br-tools">
+        <button class="br-tool" id="brUp" title="上一级">
+          <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          上一级
+        </button>
+        <button class="br-tool" id="brReload" title="刷新">
+          <svg viewBox="0 0 24 24" width="15" height="15"><path d="M20 12a8 8 0 11-2.3-5.6M20 4v4h-4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <label class="br-chk"><input type="checkbox" id="brRecursive" checked><span>含子文件夹</span></label>
+      </div>
+    </div>
+    <!-- 片源文件夹：首页刷的就是这里列出来的几个目录的合集 -->
+    <div class="br-src" id="brSrc"></div>
+    <div class="br-body" id="brBody"></div>
+  </section>
+
+  <!-- ================= 底部导航 ================= -->
+  <nav class="tabbar" id="tabbar">
+    <button data-nav="home" class="active">
+      <svg viewBox="0 0 24 24" width="24" height="24"><path d="M3 10.5L12 3l9 7.5V21H3z" fill="currentColor"/></svg>
+      <span>首页</span>
+    </button>
+    <button data-nav="browse">
+      <svg viewBox="0 0 24 24" width="24" height="24"><path d="M3 7a2 2 0 012-2h4l2 2.4h8a2 2 0 012 2V18a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>
+      <span>文件夹</span>
+    </button>
+    <button data-nav="me">
+      <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M4 20c0-4 3.6-6.4 8-6.4S20 16 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+      <span>我的</span>
+    </button>
+  </nav>
+
+  <!-- ================= 蒙层 / 面板 ================= -->
+  <div class="mask" id="mask" hidden></div>
+
+  <!-- 搜索 -->
+  <section class="sheet tall" id="searchSheet" hidden>
+    <div class="sheet-head">
+      <span>搜索 NAS 里的视频</span>
+      <button class="sheet-close" data-close>✕</button>
+    </div>
+    <div class="search-bar">
+      <svg viewBox="0 0 24 24" width="17" height="17"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="searchInput" placeholder="输入片名 / 文件夹名，如 流浪地球" autocomplete="off">
+      <button class="search-clear" id="searchClear">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="grid" id="searchGrid"></div>
+      <div class="grid-empty" id="searchEmpty" hidden>输入关键词开始搜索</div>
+    </div>
+  </section>
+
+  <!-- ---- 目录选择器（2026-09-20，给「.strm 自动库」第 4 步挑监控文件夹用）----
+       ⚠️ 它**不是**「文件夹」页的复制品：那里管的是片源（进首页片库），
+       这里只是挑一个目录塞进监控清单 —— 所以进去不带任何「是否已在片源里」的按钮，
+       只有一个「✓ 选这个文件夹」。
+       数据仍走现成的 GET /api/browse（跟「文件夹」页同一套接口、同一套面包屑语义），
+       ⚠️ 别为它新开后端接口 —— 那会让两个后端分叉。 -->
+  <section class="sheet tall" id="dirPickSheet" hidden>
+    <div class="sheet-head">
+      <span>选择要监控的文件夹</span>
+      <button class="sheet-close" data-close-dirpick>✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="br-crumb" id="dpCrumb"></div>
+      <div class="dp-bar">
+        <button class="btn ghost" id="dpUp">上一级</button>
+        <button class="btn primary" id="dpPick">✓ 选这个文件夹</button>
+      </div>
+      <div class="dp-path" id="dpPath">—</div>
+      <div class="fl" id="dpList"></div>
+    </div>
+  </section>
+
+  <!-- NAS 连接设置 -->
+  <section class="sheet tall" id="configSheet" hidden>
+    <div class="sheet-head">
+      <span>NAS 设置</span>
+      <button class="sheet-close" data-close>✕</button>
+    </div>
+    <div class="sheet-body">
+
+      <!-- ============ 第 1 步：内置 CloudDrive2 引擎 ============
+           📌 手机本地跑一个 CloudDrive2 引擎，App 直接连它的 WebDAV —— **完全不经过 NAS**。
+              它是 MainActivity 用 nativeLibraryDir 里的 libclouddrive.so 拉起的子进程，
+              监听 127.0.0.1:19798（实现见 MainActivity 末尾那一节 + android/jniLibs/）。
+              内置 Alist（OpenList）已整体移除 —— 它走 115 老接口风控太频繁。
+
+           ⚠️ 这块**只在 APK 版显示**：app.js 里先看 `window.NasBridge.cd2Status`
+              在不在，不在就把整块保持 hidden（PC / 浏览器没有那个引擎，
+              摆出来只会让人点了没反应 —— §17 那类「假按钮」）。
+           ⚠️ 别把这一步做成「必须走」：它只是一条捷径，WebDAV 那条路完全没动。 -->
+      <div class="step" id="stepCD2" hidden>
+        <div class="step-head"><b>1</b><span>内置网盘（手机本地，不用 NAS）</span></div>
+        <div class="ol-status" id="cd2Status">正在启动内置引擎…</div>
+        <div class="row2">
+          <button class="btn ghost" id="cd2Config">打开 CloudDrive2 管理</button>
+          <button class="btn primary" id="cd2Use">用它当数据源</button>
+        </div>
+        <div class="pick-hint">
+          先在管理页登录 CD2 账号并挂载网盘，回来点「用它当数据源」，再用<b>同一组账号密码</b>登录。
+        </div>
+      </div>
+
+      <!-- ============ 第一步：登录 ============
+           2026-09-18 改版：以前填完地址就**立刻**跳去「文件夹」页逼人挑目录，
+           但服务器密码改不了、旧挂载也删不掉，人一到那页就卡住。
+           现在拆成两步：这一块只管**登录**，真的连上了才对下面那块解锁。 -->
+      <div class="step" id="stepLogin">
+        <div class="step-head"><b>2</b><span>登录到 WebDAV 服务器</span></div>
+
+        <label class="field">
+          <span>WebDAV 服务地址</span>
+          <input id="cfUrl" placeholder="http://192.168.1.100:5005" spellcheck="false">
+          <button class="btn ghost" id="cfCd2" type="button">填内置 CloudDrive2 地址</button>
+          <p class="hint">账号密码 = CD2 登录账号。</p>
+        </label>
+        <div class="field-row">
+          <label class="field"><span>用户名</span><input id="cfUser" placeholder="可留空" spellcheck="false"></label>
+          <label class="field"><span>密码</span><input id="cfPass" type="password" placeholder="留空则不修改"></label>
+        </div>
+
+        <div class="row2">
+          <button class="btn primary" id="cfLogin">登录</button>
+        </div>
+
+        <details class="help">
+          <summary>常见 NAS 的 WebDAV 地址怎么写？</summary>
+          <ul>
+            <li><b>群晖</b> <code>http://NAS的IP:5005</code>　<b>威联通</b> <code>http://NAS的IP:8080</code></li>
+            <li><b>绿联/极空间/铁威马</b> <code>http://NAS的IP:5005</code>　<b>Nextcloud</b> <code>https://你的域名</code></li>
+            <li>账号密码 = NAS 登录账号；局域网用 http 更简单。</li>
+          </ul>
+        </details>
+      </div>
+
+      <!-- ============ 第二步：选文件夹（登录成功后才展开） ============
+           `hidden` 由 app.js 控制：登录成功 → 拿掉 hidden。 -->
+      <div class="step" id="stepPick" hidden>
+        <div class="step-head"><b>3</b><span>选择要刷的文件夹</span></div>
+
+        <div class="pick">
+          <button class="pick-btn" id="cfBrowse">
+            <svg viewBox="0 0 24 24" width="17" height="17"><path d="M3 7a2 2 0 012-2h4l2 2.4h8a2 2 0 012 2V18a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="currentColor"/></svg>
+            <span id="cfDirText">浏览 NAS 目录…</span>
+          </button>
+          <button class="pick-test" id="cfTest" title="测试这个文件夹">测试</button>
+        </div>
+        <div class="pick-hint">进入文件夹页，用 <b>＋</b> 把文件夹加为片源（可多个）。</div>
+        <div class="cf-dirs" id="cfDirs"></div>
+      </div>
+
+      <div class="cap-line" id="cfFfmpeg"></div>
+
+      <!-- ---- 格式支持说明 ----
+           ⚠️ 这里**故意不放任何「转码服务器地址」输入框**，别再加回来。
+           2026-09-18 之前短暂有过一版「把转码转发给 NAS 上的 Docker 解码服务」，
+           那要求用户额外部署并长期维护一个容器 —— 对单机使用是负担，已整体回退。
+           现在 APK 自包含：能播的靠系统原生解码直接播，不能播的就在扫描阶段标灰。
+           具体能播什么由 #cfFfmpeg 那一行动态说明（见 app.js 的 updateFfmpegLine）。 -->
+
+      <!-- ---- 通用选项 ---- -->
+      <div class="common">
+        <label class="switch-row">
+          <span>连子文件夹一起扫<em>深度</em></span>
+          <!-- ⚠️ 这里原来是个 `input[type=number] min=1 max=8 value=4`。
+               2026-09-18 实测 /dav/示例片源 有 **48.4%** 的视频在第 5 层（5095 个），
+               深度 4 会把它们全部漏掉而且**不报错** —— 用户说的「藏得深扫不出来」
+               就是这个。现在默认「不限」（value=0），并给出几个档位。
+               样式沿用 .switch-row select（「屏蔽小文件」那个下拉也是它）。 -->
+          <select id="cfDepth">
+            <option value="0">不限</option>
+            <option value="1">1 层</option>
+            <option value="2">2 层</option>
+            <option value="3">3 层</option>
+            <option value="4">4 层</option>
+            <option value="6">6 层</option>
+            <option value="8">8 层</option>
+            <option value="12">12 层</option>
+            <option value="16">16 层</option>
+            <option value="32">32 层</option>
+          </select>
+          <label class="switch"><input type="checkbox" id="cfRecursive" checked><i></i><b>开启</b></label>
+        </label>
+        <!-- ⚠️ 这里原来有个「只列出能直接播的格式」开关（#cfPlayable / playableOnly）。
+             2026-09-18 随「过滤 avi/wmv/mkv」一起把开关整个删掉；
+             2026-09-19 白名单放开到 PLAYABLE_EXTS（mkv/flv/ts/3gp 等原生播放器能解的都进片库），
+             而 avi/wmv/rmvb/mpg/mpeg 由扫描**直接跳过**（用户要求，点进去看错误卡片没有意义）。
+             开关没有复活，别加回来。 -->
+
+        <!-- ---- 屏蔽小文件（2026-09-18 用户要求「可以直接选择屏蔽多大以下的视频」）----
+             ⚠️ 这是一个**纯前端**筛选，值存在 localStorage（`nasdy.minSize`），
+             **不走 /api/config** —— 原因：
+               ① 它不改变扫描行为，服务端不需要知道；
+               ② 改阈值必须**即时生效**，若走 config 就会触发 `loadLibrary(true)`
+                  重扫一遍（实测 54~185 秒），用户拖一下就得等一分钟；
+               ③ 一份 app.js 伺候两个后端（PC server.js / APK NasServer.java），
+                  加进 config 就得让两边都回这个字段，纯属自找麻烦。
+             所以：change 时直接 `rebuildShown()` 重算 S.videos，零网络、零等待。
+             档位固定成预设值，`data-mb` 只是给 check.js 断言用的，JS 读的是 value。 -->
+        <label class="switch-row">
+          <span>屏蔽小文件<em>小于该体积不进片库</em></span>
+          <select id="cfMinSize">
+            <option value="0" data-mb="0">不屏蔽</option>
+            <option value="5" data-mb="5">5 MB 以下</option>
+            <option value="10" data-mb="10">10 MB 以下</option>
+            <option value="20" data-mb="20">20 MB 以下</option>
+            <option value="50" data-mb="50">50 MB 以下</option>
+            <option value="100" data-mb="100">100 MB 以下</option>
+            <option value="200" data-mb="200">200 MB 以下</option>
+            <option value="500" data-mb="500">500 MB 以下</option>
+            <option value="1024" data-mb="1024">1 GB 以下</option>
+          </select>
+        </label>
+        <label class="switch-row">
+          <span>画面填充<em>竖屏视频建议「铺满」</em></span>
+          <div class="seg" id="fitSeg">
+            <button data-fit="contain" class="active">完整</button>
+            <button data-fit="cover">铺满</button>
+          </div>
+        </label>
+      </div>
+
+      <!-- ---- .strm 自动库（2026-09-20，用户要求「内置到 app、可选多个文件夹、增量、定时」）----
+           把原来只能用电脑跑的 _tools/make-strm.js 搬进手机：对监控清单里的目录定期
+           PROPFIND 一轮，把每个视频生成一个 .strm 文件写进 App 内的固定目录。
+           挂给 Emby/Jellyfin 后，它们只读这些小文本，不再自己天天递归列网盘 ——
+           防风控的核心从「别扫」变成「少而准地扫」。增量由后端 manifest 管，
+           前端只负责选目录 / 选间隔 / 点立即生成。
+
+           🔴 2026-09-20 二次改版（用户拍板「A 回传不要了，B 完全开放」）：
+             A. 输出**只有本地**，且落点固定（#cfStrmLocalText 只读展示）——
+                原来的「NAS 输出目录」输入框整个删了，也不再需要「授权存储」。
+             B. 监控清单**不再只是片源**，CD2 根目录下任意文件夹都能加（可多个）。
+                清单行的 ✕ 只从**本清单**里删，跟第 3 步的片源互不影响。 -->
+      <div class="step" id="stepStrm" hidden>
+        <div class="step-head"><b>4</b><span>.strm 自动库（给媒体服务器用）</span></div>
+        <div class="field">
+          <span>保存位置</span>
+          <div class="ro-path" id="cfStrmLocalText">—</div>
+          <p class="hint">固定存在 App 里，不用填，也不用授权；用数据线接电脑能拿到。</p>
+        </div>
+
+        <details class="help">
+          <summary>用 .strm 文件当片源（少打网盘 API，防风控）</summary>
+          <ul>
+            <li>纯文本文件，一行一个视频地址（<code>http(s)://</code> 直链或 <code>/</code> 开头的 WebDAV 路径），放进片源文件夹即可。</li>
+            <li>扫描只读小文本、基本不打网盘 API；直链过期重新生成即可。<b>无缩略图和时长。</b></li>
+          </ul>
+        </details>
+
+        <div class="sec"><b>监控这些文件夹</b><span class="line"></span></div>
+        <div class="pick-hint">可以选任意文件夹（不限于片源），可多选。</div>
+        <div class="cf-dirs strm-box" id="cfStrmJobs"></div>
+        <div class="row2">
+          <button class="btn ghost" id="cfStrmAdd" type="button">＋ 添加文件夹</button>
+        </div>
+
+        <label class="switch-row">
+          <span>自动扫描间隔<em>间隔越小越容易触发风控</em></span>
+          <select id="cfStrmEvery">
+            <option value="0">仅手动</option>
+            <option value="1">每 1 小时</option>
+            <option value="3">每 3 小时</option>
+            <option value="6">每 6 小时</option>
+            <option value="12">每 12 小时</option>
+            <option value="24">每 24 小时</option>
+          </select>
+        </label>
+
+        <!-- 体积阈值（2026-09-22 用户要求「可以自定义生成的文件大小，小于设定大小跳过生成」）。
+             ⚠️ 判据是**源视频的体积**（WebDAV PROPFIND 给的 getcontentlength），
+                不是生成的 .strm 文件本身 —— 那个只有几十字节，拿它比会全军覆没
+                （「屏蔽小文件」踩过这个坑，见 app.js 的 isStrmPointer）。
+             留空 / 0 = 不限制，跟以前一样全部都生成。 -->
+        <label class="switch-row">
+          <span>小于这个大小不生成<em>MB；0 = 全部生成</em></span>
+          <input id="cfStrmMinSize" type="number" min="0" step="50" value="0" inputmode="numeric" placeholder="0">
+        </label>
+
+        <div class="row2">
+          <button class="btn primary" id="cfStrmRun">立即生成</button>
+        </div>
+        <div class="cf-status" id="cfStrmStatus" hidden></div>
+        <div class="pick-hint">增量处理，只重建新增/变动的；首轮全量稍慢。</div>
+
+        <!-- 备份 / 换机（2026-09-20 用户要素）：导出 = 打包成 zip 存到「下载」；
+             导入 = 系统文件选择器挑 zip，按「合并补缺」解回本机。
+             ⚠️ 导入为什么走 <input type=file> 而不是原生桥：WebView 的
+                Chrome.onShowFileChooser 已经接住它了（换头像就是这条路），
+                选到的 File 直接 fetch 上传给 /api/strm/restore，不用再开一套 SAF 代码。 -->
+        <div class="sec"><b>备份 / 换机</b><span class="line"></span></div>
+        <div class="row2">
+          <button class="btn ghost" id="cfStrmExport" type="button">导出备份</button>
+          <button class="btn ghost" id="cfStrmImport" type="button">导入备份</button>
+        </div>
+        <div class="pick-hint" id="cfStrmBkNote">导出完整备份（.strm 文件 + 增量索引 + 监控清单 + 片源）到手机「下载」目录；换机后装好 App、只填一次服务地址，点「导入备份」选这个 zip，片源与监控清单会自动补上，也不用重扫。<b>备份里不含账号密码</b>（避免凭据跟着 zip 到处跑）。</div>
+        <input type="file" id="cfStrmBkFile" accept=".zip,application/zip,application/x-zip-compressed" hidden>
+      </div>
+
+      <div class="cf-status" id="cfStatus" hidden></div>
+
+      <div class="sheet-actions">
+        <button class="btn primary" id="cfSave">保存并开始刷</button>
+      </div>      <button class="btn text" id="cfDemo">不连 NAS，用演示视频看看效果</button>
+    </div>
+  </section>
+
+  <!-- ============ 账号与同步（从数据源设置抽出来的独立面板）============
+       多台设备登同一个账号：点赞 / 收藏 / 坏码流名单 / 头像昵称 / 片源与监控清单
+       自动对齐；strm 备份包也能存进账号，新设备登录后自动恢复（换机不用再手动导 zip）。
+
+       🔴 这一整块是**可选**的：不填就当没有它，所有数据仍只在本机 ——
+          和「本机写入、离线可用」的既有设计不冲突（同步只是多了一条对外的路）。
+       🔴 前端是**直接连 NAS 上的那个服务端**（不经过本机的 8099），
+          所以那边必须开了 CORS —— server.js 只对 /api/auth 与 /api/sync 开（见那里的注释）。
+       ⚠️ 服务器地址别填成 App 自己的 127.0.0.1:8099：那是本机服务，
+          填它等于「自己同步给自己」，看着成功其实什么都没发生。 -->
+  <section class="sheet tall" id="syncSheet" hidden>
+    <div class="sheet-head">
+      <span>账号与同步</span>
+      <button class="sheet-close" data-close>✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="field">
+        <span>同步服务器</span>
+        <input id="cfSyncUrl" placeholder="http://192.168.1.10:8080" autocomplete="off" spellcheck="false">
+        <p class="hint">在 NAS 上跑本项目的 <code>server.js</code>（<code>node server.js</code>），把它的地址填这里；同一 WiFi 用局域网 IP。</p>
+      </div>
+      <div class="field">
+        <span>账号</span>
+        <input id="cfSyncUser" placeholder="中英文、数字、_ - ." autocomplete="username" spellcheck="false">
+      </div>
+      <div class="field">
+        <span>密码</span>
+        <input id="cfSyncPass" type="password" placeholder="至少 4 位" autocomplete="current-password">
+      </div>
+      <div class="row2">
+        <button class="btn ghost" id="cfSyncLogin" type="button">登录</button>
+        <button class="btn ghost" id="cfSyncRegister" type="button">注册新账号</button>
+      </div>
+      <div class="cf-status" id="cfSyncStatus" hidden></div>
+      <div class="row2">
+        <button class="btn ghost" id="cfSyncNow" type="button">立即同步</button>
+        <button class="btn ghost" id="cfSyncOut" type="button">退出账号</button>
+      </div>
+      <label class="switch-row">
+        <span>自动同步<em>打开就拉一次；点赞/收藏改完几秒内自动推上去</em></span>
+        <input type="checkbox" id="cfSyncAuto" checked>
+      </label>
+      <div class="sec"><b>strm 备份包</b><span class="line"></span></div>
+      <div class="row2">
+        <button class="btn ghost" id="cfSyncUp" type="button">上传到账号</button>
+        <button class="btn ghost" id="cfSyncDown" type="button">从账号恢复</button>
+      </div>
+      <div class="pick-hint" id="cfSyncNote">.strm 是设备上的本地文件，不跟着账号自动走 —— 用「上传到账号」把当前这台打好的包装进账号，换新设备登录后会自动拉下来恢复。</div>
+    </div>
+  </section>
+
+  <!-- 设置面板：当前占位，方便后续扩展功能 -->
+  <!-- ⚙️「设置」面板（「我的」页右上角齿轮打开）。
+       ⚠️ 2026-09-21 用户明确指出：**外观开关要放在这里**，不是「数据源设置」里。
+          （上一版放错到了 #configSheet 的「通用选项」区 —— 那里是数据源相关的，
+            外观属于「偏好」，该归这个面板。）
+       这里原来只有一块「更多设置开发中」的占位（#settingsEmpty），已整体换掉。 -->
+  <section class="sheet compact" id="settingsSheet" hidden>
+    <div class="sheet-head">
+      <span>设置</span>
+      <button class="sheet-close" data-close>✕</button>
+    </div>
+    <div class="sheet-body">
+      <!-- ---- 外观（2026-09-21，用户要求「黑白主题切换 + 做一个白色 UI」）----
+           三档：深色 / 浅色 / 跟随系统。
+           存 localStorage（`nasdy.theme`），**不走 /api/config** —— 理由和「屏蔽小文件」一样：
+             ① 不改扫描行为，服务端不需要知道；
+             ② 必须即时生效（走 config 会触发一次全量重扫，实测 54~185 秒）；
+             ③ 一份 app.js 伺候两个后端，加进 config 就得两边都回这个字段。
+
+           浅色的实现：**style.css 末尾只覆盖 CSS 变量**，一条规则都没重写。
+           覆盖范围是「界面」（设置 / 我的 / 文件夹 / 搜索 / 所有面板 / 顶栏 / 底栏），
+           **只有首页刷视频那块保持黑底**（视频上下留白变白很刺眼）。
+           ⚠️ 顶栏和底栏**要跟随主题**（用户 2026-09-21 二次确认过）——
+              它们虽然压在视频上，但浅色下用的是接近实底的白 + 深色图标，读得清。
+              别再按「它压在视频上」把它们改回深色。
+
+           ⚠️ 别把这里做成 <select>：三档用分段控件一眼能看出「现在选的是哪个」，
+              下拉得点开才知道，切换主题这种即时操作不适合藏起来。 -->
+      <label class="switch-row">
+        <span>外观</span>
+        <div class="seg" id="themeSeg">
+          <button data-theme="dark" class="active">深色</button>
+          <button data-theme="light">浅色</button>
+          <button data-theme="auto">跟随系统</button>
+        </div>
+      </label>
+      <!-- 还没做的入口，如实说明，别摆假控件（本项目删过一堆「点了没反应」的假按钮） -->
+      <div class="pick-hint" style="margin-top:16px;">偏好、隐私、关于等入口还在做。</div>
+    </div>
+  </section>
+
+  
+
+  <!-- 全屏播放器（首页点「全屏」/ 列表里点开） -->
+  <div class="player" id="playerModal" hidden>
+    <div class="player-feed" id="playerFeed"></div>
+    <div class="player-bar">
+      <button class="player-btn back" id="playerClose" title="返回（Esc）">
+        <span class="pb-ic"><svg viewBox="0 0 24 24" width="19" height="19"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="pb-txt">返回</span>
+      </button>
+    </div>
+    <!-- 横滑快进/快退时的居中提示 -->
+    <div class="seek-ind" id="seekInd" hidden>
+      <div class="seek-ico" id="seekIco">⟫</div>
+      <div class="seek-txt"><b id="seekDelta">+00:00</b><span id="seekCur">00:00 / 00:00</span></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <div class="burst" id="burst"></div>
+
+</div>
+</div>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

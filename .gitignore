@@ -1,0 +1,41 @@
+# ─────────────────────────── 敏感数据（绝不入库） ───────────────────────────
+# data/ 里有真实 WebDAV 地址 / 账号 / 密码，以及个人片库路径与观看记录
+data/
+!.gitignore
+
+# ─────────────────────────── 构建产物 ───────────────────────────
+android/build/
+android/dist/
+*.apk
+*.aab
+*.idsig
+fnos/build/
+fnos/dist/
+fnos/.cache/
+*.fpk
+
+# ─────────────────────────── 预编译二进制（体积大，按需自行准备） ───────────────────────────
+# ffmpeg / ffprobe：跑 start.bat 会用到，但不适合进库
+bin/
+# 115 CD2 原生库（~46MB 预编译 .so）
+android/jniLibs/
+# fnOS 打包工具（官方 fnpack.exe）
+fnos/tools/
+
+# ─────────────────────────── 临时 / 调试产物 ───────────────────────────
+tmp/
+_tmp/
+_backup/
+_deprecated/
+_shots/
+*.log
+__pycache__/
+*.pyc
+
+# ─────────────────────────── 系统 / 编辑器 ───────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp

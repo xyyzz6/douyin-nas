@@ -1,0 +1,14 @@
+{
+  "name": "nas-douyin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "在浏览器里像刷抖音一样刷 NAS（WebDAV）里的视频，支持点赞、收藏、评论",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "samples": "node fetch-samples.js",
+    "test": "node test-webdav.js",
+    "apk": "node android/build.js"
+  },
+  "engines": { "node": ">=18" }
+}
