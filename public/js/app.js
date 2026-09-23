@@ -95,6 +95,38 @@ const S = {
 };
 LS.set('clientId', S.clientId);
 
+/* ---------------------- 预加载条数（用户可调，2026-09-23） ----------------------
+ *
+ * 背景：切片时后台会「预热」后面 N 条（提前 mount 好 video、发出取流请求），
+ * 让下一次上滑立刻能播。但每多预热一条就多一路**并发取流** ——
+ * 直连网盘/CDN 的源对「同一 IP 短时间大量并发请求」很敏感，
+ * 预热太多容易被限速甚至风控（用户 2026-09-23 反馈：「默认 5 条太容易风控了」）。
+ *
+ * 所以把它做成**用户可调**：
+ *   · 默认 5（保持老行为，老用户升级后手感不变）；
+ *   · 0 = 完全不预加载（最省并发、最不容易被风控，代价是切条时要等首帧）；
+ *   · 上限 9 —— 不是随便定的，是**与滑动窗口的宽度绑死的**（见 WIN_AFTER 那段注释）：
+ *     窗口 `[i-4, i+9]` 得盖得住预热的 `i+1..i+N`，超过 9 就会把窗口整个拖走、
+ *     引发「窗口重排 → 重新吸附 → 自动跳下一条」的级联。
+ *
+ * 只存 localStorage（`nasdy.preheat`），**不走 /api/config** —— 理由同 #cfMinSize / 主题：
+ *   ① 纯前端行为（挂几个 video 元素），服务端不需要知道；
+ *   ② 必须即时生效，走 config 会触发全量重扫（实测几十秒起）；
+ *   ③ 一份 app.js 伺候两个后端（APK / Node），加进 config 就得两边都回这个字段。
+ *
+ * ⚠️ 改上限时**必须同步三处**：这里、index.html 的 `max`、check.js 的断言。
+ *    只改一处的话 UI 能填到 12，代码却按 9 截，用户会以为「填了没生效」。
+ */
+const PREHEAT_LS = 'preheat';
+const PREHEAT_DEFAULT = 5;
+const PREHEAT_MAX = 9;
+/** 当前生效的预加载条数：0 = 不预加载；非法值一律回默认 */
+function preheatCount() {
+  const v = Number(LS.get(PREHEAT_LS, PREHEAT_DEFAULT));
+  if (!Number.isFinite(v)) return PREHEAT_DEFAULT;
+  return Math.max(0, Math.min(PREHEAT_MAX, Math.round(v)));
+}
+
 const feeds = [];
 const forAllFeeds = (fn) => feeds.forEach(fn);
 
@@ -834,24 +866,31 @@ const seekSettle = new Map();
     mount(i, true);
     const item = itemOf(i);
     const v = mounted.get(i);
-    // 🔴 预加载后面 5 条（2026-09-20 用户要求）：
+    // 🔴 预加载后面 N 条（N 由设置里的「预加载条数」决定，默认 5；0 = 不预加载）：
     // 当前这条开播 1s 后先预热下一集（check.js 守护这条路径），
-    // 之后 i+2..i+5 每条约错开 350ms 起一路，把 5 路预取请求分摊到时间上，
-    // 不至于在同一瞬间和当前视频抢带宽，也避免一次性起 5 个 video 元素拖慢首帧。
+    // 之后 i+2..i+N 每条约错开 350ms 起一路，把 N 路预取请求分摊到时间上，
+    // 不至于在同一瞬间和当前视频抢带宽，也避免一次性起 N 个 video 元素拖慢首帧。
     // 注意：playable===false（需转码）的视频在 mount(...,false) 里会自动跳过，
     // 不会为它们白白占服务端 ffmpeg CPU。
+    //
+    // ⚠️ 为什么「0 条」要单独判断、不能让循环自己空转：下面第 1 条的定时器是
+    //    **无条件** push 的（它从 1 开始，不属于 for 循环）。不判断的话，
+    //    用户设成 0 反而还会预热 1 条 —— 「设 0 了还在偷偷请求」是最难查的那种 bug。
     warmTimers.forEach(clearTimeout); warmTimers = [];
-    const t1 = setTimeout(() => {
-      if (cur !== i) return;
-      mount(i + 1, false);
-    }, 1000);
-    warmTimers.push(t1);
-    for (let n = 2; n <= 5; n++) {
-      const t = setTimeout(() => {
+    const nWarm = preheatCount();
+    if (nWarm > 0) {
+      const t1 = setTimeout(() => {
         if (cur !== i) return;
-        mount(i + n, false);
-      }, 1000 + n * 350);
-      warmTimers.push(t);
+        mount(i + 1, false);
+      }, 1000);
+      warmTimers.push(t1);
+      for (let n = 2; n <= nWarm; n++) {
+        const t = setTimeout(() => {
+          if (cur !== i) return;
+          mount(i + n, false);
+        }, 1000 + n * 350);
+        warmTimers.push(t);
+      }
     }
     if (v) {
       v.muted = !S.soundOn;
@@ -861,10 +900,14 @@ const seekSettle = new Map();
   }
 
   function releaseFar(i) {
-    // 与「预加载后面 5 条」对齐：保留当前这条附近 ±5 的路，更远的一律卸载，
-    // 避免同时挂着太多 video 元素把内存/带宽拖垮。
+    // 卸载范围**跟着预加载条数走**（默认 5，可调 0~9）：保留当前这条前后
+    // `preheatCount()` 条的路，更远的一律卸载，避免同时挂着太多 video 元素
+    // 把内存/带宽拖垮。
+    // ⚠️ 之前这里硬编码 5：用户把预加载调大（比如 9）后，新预热的那 4 条
+    //    会**刚挂上就被这里卸掉**，表现成「调大了但没效果」。两处必须同一个值。
+    const keep = preheatCount();
     for (const k of [...mounted.keys()]) {
-      if (Math.abs(k - i) > 5) {
+      if (Math.abs(k - i) > keep) {
         cleanupVideo(mounted.get(k));
         mounted.delete(k);
         const it = itemOf(k);
@@ -3098,6 +3141,324 @@ $('themeSeg').addEventListener('click', (e) => {
   if (!b || b.dataset.theme === themeChoice()) return;
   setTheme(b.dataset.theme);
 });
+
+/* 「预加载条数」输入框（2026-09-23）。
+ * 即时生效：下一次 activate() 就会用新值（不需要重启 App，也不必重扫片库）。
+ * 用 'change' 而不是 'input' —— 后者在用户输「12」时会先按「1」生效一次，
+ * 移动端还可能因为数字键盘逐位输入而反复触发热冷却，白折腾。
+ * 越界一律**夹取后写回输入框**：用户输 20 会看到它自己变成 9，
+ * 比「默默按 9 跑、框里还显示 20」清楚得多（否则就是典型的「填了没生效」）。 */
+function applyPreheatUI() {
+  const n = preheatCount();
+  const inp = $('preheatNum');
+  if (inp) inp.value = String(n);
+  return n;
+}
+$('preheatNum').addEventListener('change', (e) => {
+  const raw = Number(e.target.value);
+  if (!Number.isFinite(raw)) { applyPreheatUI(); return; }
+  const v = Math.max(0, Math.min(PREHEAT_MAX, Math.round(raw)));
+  LS.set(PREHEAT_LS, v);
+  e.target.value = String(v);
+  toast(v === 0 ? '预加载：已关闭（最省流量）' : `预加载：${v} 条`, 1400);
+});
+applyPreheatUI();
+
+/* ==================== 应用内更新（2026-09-23）====================
+ *
+ * 用户要求：「在设置里增加一个版本更新，我要内置推送更新」。
+ *
+ * 数据源：GitHub Releases 的 `releases/latest`（公开仓库，匿名可读，**不需要 token**）。
+ * 下载：APK 直链（`browser_download_url`）→ 交给原生 `NasBridge.updDownload` 下载。
+ * 安装：原生 `NasBridge.updInstall` → FileProvider → 系统安装器。
+ *
+ * 🔴 四条设计红线（都是踩过或必然踩的坑，别改）：
+ *
+ * 1. **「检查失败」≠「已是最新」。** `api.latestRelease()` 抛异常 = 没查成
+ *    （离线 / 被墙 / 超时）。这时候**绝不能**显示「已是最新」—— 用户会以为查过了、
+ *    没问题，其实什么都没查。必须原样报「检查失败，稍后再试」。
+ *
+ * 2. **下载和安装必须分开两次点击。** Android 12+ 的「近似安装」限制只认
+ *    用户主动点击触发的那一次；下完自动弹安装会被系统静默忽略。
+ *    所以 `__updDone` 回调里**只更新 UI**，绝不自动调 `updInstall()`。
+ *
+ * 3. **更新说明按纯文本渲染，不许 innerHTML。** 那段文字来自网络（GitHub release body），
+ *    直接塞进 DOM 就是注入面。统一走 textContent。
+ *
+ * 4. **网页版（浏览器）装不了。** 没有原生桥 → 只能给一个「去下载页」的入口，
+ *    并把文案说清楚。假装能装比不给按钮更糟。
+ */
+
+/** 当前版本信息：值来自 /api/config（后端从 PackageManager 读，前端不写死版本字符串）*/
+function appVersion() {
+  const v = (S.config && S.config.versionName) || '';
+  const code = (S.config && S.config.versionCode) || 0;
+  return { name: String(v), code: Number(code) || 0 };
+}
+
+/**
+ * 版本号比较（**只比数字段**，2026-09-23）。
+ *
+ * 规则：`1.3.43` > `1.3.42` > `1.3.9`；不等长时短的那个缺位按 0 算（`1.4` == `1.4.0`）。
+ *
+ * ⚠️ 🔴 **绝对不许用字符串比较或 parseFloat**：
+ *    · `'1.3.43' > '1.3.9'` 是 **false**（字符串比到第三位 '4' < '9'）——
+ *      这样用户永远收不到「1.3.9 → 1.3.43」的更新，且**不报错**，最难查。
+ *    · `parseFloat('1.3.43')` = 1.3，直接丢掉末位，同样比不出来。
+ *    本项目版本号是「末位十进制递增」的（1.3.9 → 1.3.10 而不是进位到 1.4），
+ *    所以必须**按点切段、逐段转数字**比。
+ *
+ * @returns 正数表示 a 更新；负数表示 b 更新；0 相等
+ */
+function cmpVersion(a, b) {
+  const seg = (s) => String(s == null ? '' : s).replace(/^v/i, '').split('.')
+    .map((x) => parseInt(x, 10)).map((n) => (Number.isFinite(n) ? n : 0));
+  const A = seg(a), B = seg(b);
+  const n = Math.max(A.length, B.length);
+  for (let i = 0; i < n; i++) {
+    const x = A[i] || 0, y = B[i] || 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
+/** 更新流程的临时状态（只活在本次页面加载里，不持久化）*/
+const UPD = {
+  release: null,     // 最近一次查到的 release（有新版才有意义）
+  url: '',           // 该 abi 的 APK 直链
+  sha: '',           // 该 abi 的 APK sha256（GitHub 不提供，留空 = 原生跳过哈希校验）
+  size: 0,
+  downloading: false,
+  installing: false,
+  downloaded: false,
+};
+
+/**
+ * 挑出「对应本机 abi」的那个 APK 资产。
+ *
+ * 🔴 必须按 abi 挑，不能随便拿第一个：
+ *    arm64 包（真机）和 x86_64 包（模拟器）是两个不同文件，装错了要么装不上、
+ *    要么崩溃。判据就用文件名里的 `arm64` / `x86_64` —— 这也是 build.js 的命名约定。
+ *
+ * ⚠️ 拿不到预期 abi 时返回 null（宁可说「这个版本没有适合你机型的包」，
+ *    也不要塞一个不对的包让用户装到一半失败）。
+ */
+function pickAsset(rel) {
+  const assets = (rel && rel.assets) || [];
+  if (!assets.length) return null;
+  /* 判断本机 abi：优先问原生（Build.SUPPORTED_ABIS 才准），浏览器里退回 arm64 假设。 */
+  let abi = 'arm64';
+  try {
+    if (window.NasBridge && window.NasBridge.deviceAbi) abi = String(window.NasBridge.deviceAbi());
+  } catch (_) {}
+  const want = /x86/i.test(abi) ? 'x86_64' : 'arm64';
+  const hit = assets.find((a) => new RegExp(want, 'i').test(a.name || ''));
+  /* 兜底：找不到对应 abi 时，如果只有一个 apk 资产就先用它
+     （正常不会发生，但发版时漏传一个 abi 时至少还能更新） */
+  if (hit) return hit;
+  const apks = assets.filter((a) => /\.apk$/i.test(a.name || ''));
+  return apks.length === 1 ? apks[0] : null;
+}
+
+/**
+ * 🔴 GitHub 的 release API **不提供资产 sha256**（只有 size / content_type / 下载数）。
+ * 所以校验只能做到**字节数比对** —— 这点必须诚实：
+ *   · 好处：能挡住「下了一半」「下成了 HTML 错误页」这类最常见的失败。
+ *   · 局限：挡不住中间人替换（要真校验得让发版方额外提供 sha256 资产）。
+ * 因此传给原生的 sha256 留空、只做长度校验，**不假装**做了哈希校验。
+ */
+function assetSize(asset) {
+  return asset && asset.size ? Number(asset.size) : 0;
+}
+
+/** 把 release body（markdown）压成适合小面板显示的纯文本 */
+function releaseNoteText(body) {
+  return String(body || '')
+    .replace(/\r/g, '')
+    /* 去掉 markdown 的标题井号 / 引用符，列表星号换成 ·，但**保留换行**（可读性靠它） */
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*]\s+/gm, '· ')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')       // 粗体标记
+    .replace(/`([^`]+)`/g, '$1')             // 行内代码
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // 链接 → 只留文字
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function updSetNote(text, bad) {
+  const el = $('updNote');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = bad ? 'var(--bad-fg)' : '';
+}
+
+/** 刷新面板上的「当前版本」与按钮状态 */
+function updRender() {
+  const cur = $('updCur');
+  if (cur) {
+    const v = appVersion();
+    cur.textContent = v.name ? ('v' + v.name) : '未知';
+  }
+  const go = $('updGo');
+  if (go) {
+    go.hidden = !UPD.release;
+    go.textContent = UPD.downloading ? '下载中…' : (UPD.downloaded ? '安装' : '下载并安装');
+    go.disabled = UPD.downloading;
+  }
+}
+
+/**
+ * 检查更新。
+ * @param silent 静默模式（启动时自动跑）：**成功且有新版**才改 UI + 打红点，
+ *               失败或已是最新都**不打扰**用户（不写提示文字、不弹 toast）。
+ *               手动点「检查更新」时传 false，此时必须给出明确反馈。
+ */
+async function checkUpdate(silent) {
+  const btn = $('updCheck');
+  if (!silent && btn) { btn.disabled = true; btn.textContent = '检查中…'; }
+  try {
+    const rel = await api.latestRelease();
+    const tag = (rel && (rel.tag_name || rel.name)) || '';
+    const latest = String(tag).replace(/^v/i, '');
+    const curV = appVersion().name;
+    const newer = curV && cmpVersion(latest, curV) > 0;
+
+    if (!newer) {
+      UPD.release = null;
+      updRender();
+      $('updNew').hidden = true;
+      { const dot = $('meSettings'); if (dot) dot.classList.remove('upd-dot'); }
+      if (!silent) updSetNote('已是最新版本（v' + (curV || '?') + '）。');
+      return;
+    }
+
+    /* 有新版本：记下来 + 显示说明 + 打红点 */
+    UPD.release = rel;
+    const asset = pickAsset(rel);
+    UPD.url = asset ? asset.browser_download_url : '';
+    UPD.sha = '';
+    UPD.size = assetSize(asset);
+    const nv = $('updNewVer'); if (nv) nv.textContent = 'v' + latest;
+    const bd = $('updBody'); if (bd) bd.textContent = releaseNoteText(rel.body);
+    $('updNew').hidden = false;
+    updSetNote(asset
+      ? '可以直接在 App 里下载安装。'
+      : '这个版本没有适合你机型的安装包，请到发布页看看。');
+    { const dot = $('meSettings'); if (dot) dot.classList.add('upd-dot'); }
+    updRender();
+  } catch (e) {
+    /* 🔴 红线 1：失败**不是**「已是最新」 —— 必须原样说「没查成」 */
+    UPD.release = null;
+    updRender();
+    if (!silent) updSetNote('检查失败：' + (e && e.message ? e.message : '网络不通') + '。请稍后再试。', true);
+  } finally {
+    if (!silent && btn) { btn.disabled = false; btn.textContent = '检查更新'; }
+  }
+}
+
+/** 点「下载并安装」：App 内走原生；网页版只能跳发布页 */
+function updGo() {
+  if (!UPD.url) {
+    /* 没有匹配的包 —— 给一个发布页入口，总比什么都不做好 */
+    try { window.open('https://github.com/xyyzz6/douyin-nas/releases/latest', '_blank'); }
+    catch (_) { location.href = 'https://github.com/xyyzz6/douyin-nas/releases/latest'; }
+    return;
+  }
+  if (!(window.NasBridge && window.NasBridge.updDownload)) {
+    /* 🔴 红线 4：网页版装不了。别假装能装 —— 把话说明白，跳发布页。 */
+    updSetNote('网页版没法直接安装，正在打开发布页，请下载 APK 手动安装。');
+    try { window.open(UPD.url, '_blank'); } catch (_) { location.href = UPD.url; }
+    return;
+  }
+  /* 已经下好过同一个包 → 直接进安装（省掉一次几十 MB 的下载） */
+  let has = false;
+  try { has = !!window.NasBridge.updHasPackage(); } catch (_) {}
+  if (has && !UPD.downloading) { updInstall(); return; }
+
+  UPD.downloading = true;
+  updRender();
+  const bar = $('updBar'); const fill = $('updBarFill');
+  if (bar) bar.hidden = false;
+  if (fill) fill.style.width = '0%';
+  updSetNote('正在下载更新包，请保持网络畅通…');
+  try {
+    window.NasBridge.updDownload(UPD.url, UPD.sha || '');
+  } catch (e) {
+    UPD.downloading = false;
+    updRender();
+    updSetNote('下载启动失败：' + e.message, true);
+  }
+}
+
+/** 调原生安装（也会被「已下好」的路径直接调用） */
+function updInstall() {
+  UPD.installing = true;
+  updRender();
+  updSetNote('正在打开系统安装界面…');
+  try { window.NasBridge.updInstall(); }
+  catch (e) { updSetNote('安装启动失败：' + e.message, true); UPD.installing = false; updRender(); }
+}
+
+/* ---- 原生回调用（钩子必须挂 window —— app.js 是 module，外面看不见）---- */
+
+/** 下载进度：pct 0~100，done/total 单位 MB */
+window.__updProgress = (pct, done, total) => {
+  const fill = $('updBarFill');
+  if (fill) fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  updSetNote(`正在下载 ${Math.round(pct)}%（${(+done).toFixed(1)} / ${(+total).toFixed(1)} MB）`);
+};
+
+/**
+ * 下载结束回调。
+ *
+ * 🔴 红线 2：**这里绝对不许自动调 updInstall()**。
+ *    Android 12+ 只允许「用户点击后紧接着」弹安装；从回调里自动弹会被系统静默忽略，
+ *    表现成「下载完就没反应了」。所以这里只更新 UI，把「安装」留给用户再点一次。
+ */
+window.__updDone = (r) => {
+  UPD.downloading = false;
+  const bar = $('updBar');
+  if (r && r.ok) {
+    if (bar) bar.hidden = true;
+    UPD.downloaded = true;
+    updSetNote('下载完成（' + (r.mb || '?') + ' MB）。点下面的按钮开始安装。');
+    /* 按钮改成「安装」——用户再点一次，满足「近似安装」要求的点击动作 */
+    const go = $('updGo');
+    if (go) { go.disabled = false; go.hidden = false; }
+    updRender();
+    return;
+  }
+  if (bar) bar.hidden = true;
+  /* 「未知来源」权限没开：原生的 err 是固定串 NEED_UNKNOWN_SOURCE，
+     它已经跳了系统设置页。这里给一句能照做的话，别只报英文串。 */
+  if (r && r.err === 'NEED_UNKNOWN_SOURCE') {
+    updSetNote('需要先允许「安装未知应用」：已在系统设置里打开对应页面，开启后回来再点一次。');
+    UPD.installing = false;
+    updRender();
+    return;
+  }
+  updSetNote('下载失败：' + ((r && r.err) || '未知错误'), true);
+  UPD.installing = false;
+  updRender();
+};
+
+/* ---- 面板事件 ---- */
+$('updCheck').addEventListener('click', () => checkUpdate(false));
+$('updGo').addEventListener('click', () => {
+  /* 已经下好 → 直接装；否则先下 */
+  if (UPD.downloaded) { updInstall(); return; }
+  updGo();
+});
+
+/* 面板一打开就刷一次（版本号来自 /api/config，可能比面板构建晚到） */
+$('meSettings').addEventListener('click', () => { updRender(); });
+
+/* 启动静默检查（用户 2026-09-23 选「要，开机自动检查」）：
+   ⚠️ 延迟 6 秒再发 —— 别跟「开机那波 /api/config + /api/library + strm 恢复」
+      抢带宽和主线程。失败**完全静默**（silent=true 不写任何提示），
+      只在真发现有新版时打个小红点。 */
+setTimeout(() => { checkUpdate(true); }, 6000);
 /* 「跟随系统」档要跟着系统走。
    两条路都要有：
      · 浏览器 / PC：媒体查询自己会变，监听它（那边 prefers-color-scheme 是准的）；

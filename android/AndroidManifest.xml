@@ -38,6 +38,17 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
     <!--
+      应用内更新（2026-09-23）：设置页「版本更新」里下完 APK 后要拉起系统安装器。
+      🔴 没有这条权限，`ACTION_VIEW + application/vnd.android.package-archive`
+        在 Android 8+ 上会被系统直接**静默拒绝**（不是报错，是压根不弹安装界面），
+        表现成「点下载并安装之后什么都没发生」—— 最难查的那种症状。
+      ⚠️ 它是**普通权限**（安装时自动授予），不需要运行时申请；但用户仍可能在
+        系统设置里手动关掉「允许安装未知应用」，那种情况下要引导他去开
+        （见 MainActivity 的 canRequestPackageInstalls 分支）。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
       🔴 android:extractNativeLibs="true" 是**内置 CloudDrive2 引擎的前提**，别删。
          它让系统在安装时把 lib/<abi>/*.so 解压到 /data/app/<pkg>/lib/<abi>/，
          而那是**唯一允许本应用 execve 的路径**（Android 10 起私有目录 W^X，不许执行）。
@@ -72,6 +83,31 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          应用内更新用的 FileProvider（2026-09-23）。
+
+          ⚠️ 用的是**自己写的** `UpdateProvider`，不是 androidx.core 的 FileProvider ——
+             本项目没有 Gradle，第三方库靠 android/libs 手工铺开，
+             为一个类引进整个 androidx.core（1MB+ 还带连锁依赖）不划算。
+             见 UpdateProvider.java 的类注释。
+
+          🔴 authorities 必须与 `UpdateProvider.AUTHORITY`、
+             MainActivity 里 `getUriForFile` 用的字符串三处一致。
+          exported=false + grantUriPermissions=true 是标准姿势：自己不对外暴露，
+          只在拉起安装器时**临时**把那个 Uri 的读权限授给系统安装器。
+          meta-data 必须指向更新专用白名单（res/xml/update_paths.xml），
+          只有它放行 cacheDir/update —— 别指向开放式路径。
+        -->
+        <provider
+            android:name=".UpdateProvider"
+            android:authorities="com.nas.douyin.update"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
 
         <!--
           原生全屏播放器：独立 Activity，不跟 WebView 同屏。

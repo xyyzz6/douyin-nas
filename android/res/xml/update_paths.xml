@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 的可用路径白名单（2026-09-23，应用内更新用）。
+
+  🔴 这是 Android 8.0 之后的硬性要求：App **不能**用 `file://` 的 Uri 去拉起
+     系统安装器，会直接抛 `FileUriExposedException` 崩掉。必须走
+     `FileProvider.getUriForFile()` 换成 `content://com.nas.douyin.fileprovider/...`
+     并给 Intent 加 `FLAG_GRANT_READ_URI_PERMISSION`。
+
+  只暴露一个子目录 `update/`（下载的 APK 放这儿），**不要**图省事写成
+  `<root-path/>` 或 `<files-path path="." />` —— 那等于把 App 整个私有目录
+  （含 strm 库、thumb 缓存、账号 token）都开放给任何拿到 Uri 的 App。
+
+  ⚠️ `name` 必须与 MainActivity 里 `getUriForFile(..., "com.nas.douyin.fileprovider", f)`
+     的第二参数、以及 AndroidManifest 里 `<provider android:authorities>` **三处完全一致**，
+     写错一个字符的表现是安装界面弹不出来、logcat 里一行
+     `IllegalArgumentException: Couldn't find meta-data for provider`。
+-->
+<paths>
+    <!-- 与 getCacheDir()/update 对应（cacheDir 会被系统在空间紧张时回收，
+         但 APK 只在「下载完 → 点安装」这几分钟内需要存在，够用且不占用户存储配额） -->
+    <cache-path name="update" path="update/" />
+</paths>

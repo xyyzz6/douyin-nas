@@ -108,6 +108,28 @@ export const api = {
     return j;
   },
 
+  /**
+   * 取最新 Release（应用内更新用，2026-09-23）。
+   *
+   * 🔴 **为什么不走后端代理、直接从网页请求 api.github.com**：
+   *    · 网页跑在 WebView 里，跨域请求 GitHub 是允许的 —— api.github.com 对匿名
+   *      请求返回 `Access-Control-Allow-Origin: *`（实测），所以不需要后端搭桥。
+   *    · 走后端反而更麻烦：APK 后端是**内嵌在手机里**的，它请求 GitHub 跟网页直接请求
+   *      是同一条网络路径，没有任何收益，却要多写一个接口 + 多一处要维护的 CORS。
+   *
+   * ⚠️ 失败**必须**能区分「网络不通」和「不是更新」：
+   *    这里抛异常 = 没查成（离线、被墙、超时），调用方**不许**把它当成「已是最新」——
+   *    否则用户会以为「检查过了，没问题」，其实压根没查。
+   */
+  latestRelease: async () => {
+    const r = await fetch('https://api.github.com/repos/xyyzz6/douyin-nas/releases/latest', {
+      cache: 'no-store',
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  },
+
 };
 
 export function streamUrl(v) {

@@ -1194,6 +1194,52 @@ svg{display:block;}
 .cf-status.ok{background:rgba(37,244,238,.09);border-color:rgba(37,244,238,.3);color:var(--cyan-fg);}
 .cf-status.bad{background:rgba(254,44,85,.1);border-color:rgba(254,44,85,.32);color:var(--bad-fg);}
 
+/* ---------- 版本更新（⚙️设置面板里那块，2026-09-23） ----------
+   结构照 .switch-row 的观感来（同一面板里，别做出一套陌生样式）：
+   上边框分隔 + 左侧标题 + 右侧当前版本号。
+   ⚠️ 顺手复用 .switch-row 也行，但那一行是「标签 + 控件」的 flex 结构，
+      这块里面还有说明文字 / 新版本正文 / 进度条，塞进去会被那套 flex 挤变形，
+      所以独立出来、只对齐视觉。 */
+.upd{margin-top:6px;padding:13px 0 2px;border-top:1px solid var(--line);}
+.upd-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.upd-head > span{font-size:13.5px;font-weight:600;}
+/* 版本号：跟在「版本更新」后面，小一号、弱化处理 —— 它是**信息**不是操作，
+   做成小胶囊会和右边的按钮打架（两个胶囊并排，用户不知道该点哪个）。 */
+.upd-head > span > b{font-size:11.5px;color:var(--muted);font-weight:500;margin-left:2px;}
+/* 「检查更新」按钮：压扁放到标题行右端，跟上面「预加载条数」的数字框左右对齐。
+   ⚠️ 宽度 / 圆角 / 内边距都照着 `.switch-row input[type=number]` 抄（width:62px、
+   radius:var(--r-md)），这样两个控件的右边缘和圆角弧度才严丝合缝 —— 用默认的
+   `.btn`（胶囊）+ 靠视觉估的 padding 会差几个像素，看着就是「没对齐」。
+   ⚠️ flex-shrink:0 —— 不加的话标题长一点就会把它压扁换行。 */
+.upd-btn{
+  flex-shrink:0;width:62px;padding:8px 0;min-height:0;
+  border-radius:var(--r-md);font-size:11.5px;font-weight:600;line-height:1.45;
+}
+.upd-note{margin-top:7px;font-size:11.5px;line-height:1.6;color:var(--muted2);}
+.upd-new{margin-top:10px;padding:11px 13px;border-radius:var(--r-md);
+  background:var(--glass);border:1px solid var(--glass-stroke);}
+.upd-ver{font-size:12.5px;font-weight:600;}
+.upd-ver b{color:var(--brand);}
+/* 更新说明正文：GitHub 的 body 是 markdown，这里**按纯文本**渲染（见 app.js）
+   —— 不许 innerHTML，那种来源的字符串进 DOM 是注入面。 */
+.upd-body{margin-top:7px;font-size:11.5px;line-height:1.7;color:var(--muted);
+  white-space:pre-wrap;max-height:150px;overflow:auto;word-break:break-word;}
+.upd-bar{margin-top:11px;height:5px;border-radius:var(--r-pill);overflow:hidden;
+  background:var(--glass-2);border:1px solid var(--glass-stroke);}
+.upd-bar > i{display:block;height:100%;width:0%;border-radius:var(--r-pill);
+  background:linear-gradient(90deg,var(--brand-hi),var(--brand));
+  transition:width .25s var(--ease);}
+/* 「下载并安装」：靠右 —— 与上面「检查更新」同一列，视线不用左右横跳 */
+.upd-btns{margin-top:12px;display:flex;gap:9px;flex-wrap:wrap;justify-content:flex-end;}
+
+/* 设置齿轮上的「有新版本」小红点（启动静默检查发现新版时才显示）。
+   ⚠️ 用 ::after 而不是塞一个子元素 —— 那个按钮里已经有一个 <svg> 图标，
+      加子元素会影响它的 flex 居中（图标会被挤偏）。 */
+.me-settings.upd-dot::after{
+  content:"";position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:50%;
+  background:var(--brand);box-shadow:0 0 0 2px rgba(0,0,0,.35), 0 0 8px var(--brand-glow);
+}
+
 .help{margin:6px 0 20px;font-size:12.5px;color:var(--muted);}
 .help summary{cursor:pointer;padding:10px 0;font-weight:600;color:var(--w82);}
 .help ul{margin:0;padding-left:17px;line-height:1.85;}

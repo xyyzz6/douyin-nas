@@ -580,6 +580,77 @@ public class MainActivity extends Activity {
             });
         }
 
+        /* ==================== 应用内更新（2026-09-23） ====================
+         *
+         * 网页侧「设置 → 版本更新」整套流程都走这三个方法：
+         *   updDownload(url, sha256) → 工作线程下载到 cacheDir/update/app-update.apk
+         *   updInstall()             → 拉起系统安装器
+         *   updClear()               → 删掉下好的包
+         *
+         * 🔴 为什么下载和安装**必须分成两次用户点击**（不能下完自动装）：
+         *    Android 12+ 的「近似安装」限制只认「用户主动点击触发」的那一次，
+         *    后台下载完自动弹安装会被系统静默忽略。所以这里坚决不自动串联，
+         *    详见 UpdateInstaller 的类注释。
+         *
+         * 🔴 为什么非要有原生参与（不能像网页版那样 <a download>）：
+         *    WebView 里既没有写「下载」目录的权限，也**不能**自己拉安装器 ——
+         *    安装器要的是 `content://` Uri，只有原生能通过 provider 生成。
+         */
+
+        private UpdateInstaller updater;
+
+        private UpdateInstaller updater() {
+            if (updater == null) updater = new UpdateInstaller(MainActivity.this, web);
+            return updater;
+        }
+
+        /**
+         * 下载更新包。url 来自 GitHub Release 的 browser_download_url；
+         * sha256 为空表示跳过校验（理论上不会，网页侧会带上）。
+         */
+        @android.webkit.JavascriptInterface
+        public void updDownload(String url, String sha256) {
+            updater().download(url, sha256);
+        }
+
+        /** 安装已下好的包（用户点「安装」时才调；会先查「未知来源」权限） */
+        @android.webkit.JavascriptInterface
+        public void updInstall() {
+            updater().install();
+        }
+
+        /** 清掉下好的包（用户在面板里点「取消」或重启流程时调） */
+        @android.webkit.JavascriptInterface
+        public void updClear() {
+            updater().clear();
+        }
+
+        /** 本地是否已有下好的包 —— 网页据此决定按钮显示「下载」还是「安装」 */
+        @android.webkit.JavascriptInterface
+        public boolean updHasPackage() {
+            return updater().hasDownloaded();
+        }
+
+        /**
+         * 本机主 ABI（"arm64-v8a" / "x86_64" / …），用于挑对更新包（2026-09-23）。
+         *
+         * 🔴 为什么不等网页自己猜：网页只能从 UA 或 screen 猜，都不可靠。
+         *    `Build.SUPPORTED_ABIS[0]` 是系统按优先级排好的**权威**答案 ——
+         *    拿它才能保证 arm64 真机不会下到 x86_64 的包（装错要么装不上、要么崩）。
+         * ⚠️ 32 位老机器上第 0 项可能是 "armeabi-v7a"，那也该拿 arm64 包吗？
+         *    不该 —— 但我们只发 arm64/x86_64 两个包，所以网页侧按
+         *    「非 x86 一律 arm64」兜底即可（见 app.js 的 pickAsset）。
+         */
+        @android.webkit.JavascriptInterface
+        public String deviceAbi() {
+            try {
+                String[] abis = Build.SUPPORTED_ABIS;
+                return (abis != null && abis.length > 0 && abis[0] != null) ? abis[0] : "";
+            } catch (Throwable t) {
+                return "";
+            }
+        }
+
         /**
          * 导出 strm 备份到手机「下载」目录（设置页第 4 步「导出备份」按钮调的）。
          *

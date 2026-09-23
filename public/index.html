@@ -577,8 +577,58 @@
           <button data-theme="auto">跟随系统</button>
         </div>
       </label>
+      <!-- ---- 预加载条数（2026-09-23，用户要求：默认 5 条太容易被风控，让用户自己选）----
+           切片时会提前「预热」后面 N 条（提前挂好 video、发出取流请求），
+           让下次上滑立刻能播；但每多一条就多一路并发取流，直连网盘/CDN 的源
+           对并发很敏感，预热太多容易被限速甚至风控。所以给个 0~9 的输入让用户自己权衡。
+
+           ⚠️ 用 number 输入而不是分段控件：0~10 有 11 档，分段控件塞不下
+              （同款控件在「外观」是 3 档、「画面填充」是 2 档，都是少档位才用它）。
+           ⚠️ max 必须与 app.js 的 PREHEAT_MAX（9）**一致** —— 理由见那边的注释：
+              上限是被滑动窗口宽度（WIN_AFTER=9）钉死的，不是随手填的。
+           ⚠️ min=0 且 0 是**合法值**（表示完全不预加载），别写成 min=1。 -->
+      <label class="switch-row">
+        <span>预加载条数<em>切上/下一条前，提前缓冲几条（0 = 不预加载，最省流量、最不容易被风控；默认 5）</em></span>
+        <input id="preheatNum" type="number" min="0" max="9" step="1" value="5" inputmode="numeric">
+      </label>
       <!-- 还没做的入口，如实说明，别摆假控件（本项目删过一堆「点了没反应」的假按钮） -->
       <div class="pick-hint" style="margin-top:16px;">偏好、隐私、关于等入口还在做。</div>
+
+      <!-- ============ 版本更新（2026-09-23 用户要求「内置推送更新」）============
+           数据源是 GitHub Releases 的 `releases/latest`（公开仓库，匿名可取）。
+           流程刻意拆成「检查 → 下载 → 安装」三步**用户各自点一次**：
+
+           🔴 为什么下载和安装必须是两次独立点击（不能下完自动装）：
+              Android 12+ 的「近似安装」限制只认**用户主动点击**触发的那一次，
+              后台下载完自动弹安装会被系统**静默忽略**。所以这两个按钮不能合并，
+              也不能在下载完成的回调里自动调 install —— 那是这个功能最容易写错的地方。
+
+           🔴 为什么「检查更新失败」和「已是最新」必须分开显示：
+              网络不通时若显示「已是最新」，用户会以为查过了。见 app.js 里的注释。
+
+           ⚠️ 网页版（浏览器打开）没有原生桥，无法自己下载安装 —— 那种情况下
+              只显示「有新版本 → 去下载页」，把 GitHub 页面打开，别假装能装。
+      -->
+      <div class="upd" id="updBox">
+        <!-- 版本号跟在标题右侧（小字、不抢眼）；「检查更新」按钮固定在这一行的右端，
+             和上面的「预加载条数」那个数字框对齐成同一列。 -->
+        <div class="upd-head">
+          <span>版本更新 <b id="updCur">—</b></span>
+          <button class="btn ghost upd-btn" id="updCheck" type="button">检查更新</button>
+        </div>
+        <div class="upd-note" id="updNote">有新版本会在「我的」右上角的设置齿轮上显示红点。</div>
+        <!-- 新版本信息（有新版才显示） -->
+        <div class="upd-new" id="updNew" hidden>
+          <div class="upd-ver">发现新版本 <b id="updNewVer">—</b></div>
+          <div class="upd-body" id="updBody"></div>
+        </div>
+        <!-- 下载进度条（下载中才显示） -->
+        <div class="upd-bar" id="updBar" hidden><i id="updBarFill"></i></div>
+        <!-- 「下载并安装」在有新版时才出现，靠右与上面按钮同列 -->
+        <div class="upd-btns">
+          <button class="btn primary" id="updGo" type="button" hidden>下载并安装</button>
+        </div>
+      </div>
     </div>
   </section>
 

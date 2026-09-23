@@ -3953,6 +3953,211 @@ console.log('\n · 深色 / 浅色主题');
     !/THEME_LS|themeChoice\(\)|themeResolved\(\)/.test(grabFn(appCode, 'formValues')));
 }
 
+/* ==================== 预加载条数（2026-09-23） ====================
+ *
+ * 用户要求：「在设置里增加可以自己设置预加载几条视频，默认 5 条太容易风控了让用户自己来选择」。
+ *
+ * 这套东西的失效方式都很隐蔽、且**不会报错**：
+ *   · 两处硬编码没一起改 → 调大了没效果（releaseFar 刚挂上就卸掉）
+ *   · 「0 条」漏判 → 用户设 0 以为不请求了，实际还在偷偷预热第 1 条
+ *   · 上限三处不一致（app.js / index.html 的 max / 这里）→ 填了没生效
+ * 所以这组断言专盯「两处是不是同一个值」「0 是不是真的 0」「上限是不是钉死的」。
+ */
+console.log('\n · 预加载条数（可配置）');
+{
+  /* ① 取值函数：默认 5 / 0 合法 / 越界夹取。**必须真跑** —— `Number('')` 是 0
+     而不是 NaN，`Number(null)` 也是 0，光看正则看不出这些边界对不对。 */
+  chk('PREHEAT_DEFAULT / PREHEAT_MAX 常量存在（默认 5、上限 9）',
+    /const PREHEAT_DEFAULT = 5;/.test(appCode) && /const PREHEAT_MAX = 9;/.test(appCode));
+  chk('没存过值时返回默认 5（老用户升级后手感不变）',
+    (() => {
+      const f = new Function(
+        'const LS = { get: (k, d) => d, set() {} };'
+        + 'const PREHEAT_LS = \'preheat\'; const PREHEAT_DEFAULT = 5; const PREHEAT_MAX = 9;\n'
+        + grabFn(appCode, 'preheatCount') + '\nreturn preheatCount();')();
+      return f === 5;
+    })());
+  const runWith = (stored) => {
+    const fn = new Function('stored', `
+      const LS = { _v: { preheat: stored }, get(k, d) { return k in this._v ? this._v[k] : d; }, set(k, v) { this._v[k] = v; } };
+      const PREHEAT_LS = 'preheat'; const PREHEAT_DEFAULT = 5; const PREHEAT_MAX = 9;
+      ${grabFn(appCode, 'preheatCount')}
+      return preheatCount();`);
+    return fn(stored);
+  };
+  chk('🔴 0 是**合法值**（= 完全不预加载），不能被 `|| 默认` 或 falsy 判断吃成 5',
+    runWith(0) === 0, '0 → ' + runWith(0));
+  chk('正常值原样返回（3 → 3）', runWith(3) === 3, '3 → ' + runWith(3));
+  chk('负数夹到 0（手滑输了 -2）', runWith(-2) === 0, '-2 → ' + runWith(-2));
+  chk('超上限夹到 9（填 20 不能真去预热 20 条）', runWith(20) === 9, '20 → ' + runWith(20));
+  chk('脏字符串回落默认（localStorage 里可能是手改的 / 旧格式）',
+    runWith('abc') === 5, "'abc' → " + runWith('abc'));
+
+  /* ② 🔴 两处必须同时用 preheatCount() —— 少改一处就是「调大了没效果」 */
+  const act = grabFn(appCode, 'activate');
+  chk('🔴 activate() 的预热循环用的是 preheatCount()，不是硬编码 5',
+    /const nWarm = preheatCount\(\)/.test(act) && /n <= nWarm/.test(act)
+    && !/n <= 5/.test(act),
+    '硬编码 5 会让设置形同虚设');
+  chk('🔴 预热的**第 1 条**（i+1，不属于 for 循环）也被 0 挡住了',
+    /if \(nWarm > 0\) \{/.test(act),
+    '漏了它的话设成 0 还会偷偷预热 1 条 —— 这是最难查的一类 bug');
+  chk('🔴 releaseFar() 的卸载范围跟着 preheatCount() 走，不是硬编码 5',
+    (() => {
+      const rf = grabFn(appCode, 'releaseFar');
+      return /const keep = preheatCount\(\)/.test(rf) && /Math\.abs\(k - i\) > keep/.test(rf)
+        && !/Math\.abs\(k - i\) > 5/.test(rf);
+    })(),
+    '否则调大后新预热的几条刚挂上就被卸掉');
+
+  /* ③ 入口：⚙️「设置」面板里的输入框（不是「数据源设置」—— 同外观那条的理由） */
+  const secOfPH = (id) => {
+    const i = htmlCode.indexOf('id="' + id + '"');
+    return i < 0 ? '' : htmlCode.slice(i, htmlCode.indexOf('</section>', i));
+  };
+  chk('设置面板（#settingsSheet）里有 #preheatNum 输入框',
+    /<input id="preheatNum" type="number"/.test(htmlCode)
+    && secOfPH('settingsSheet').includes('id="preheatNum"')
+    && !secOfPH('configSheet').includes('id="preheatNum"'));
+  chk('🔴 输入框的 min/max 与代码里的上限一致（min=0 表示 0 合法、max=9 对上 PREHEAT_MAX）',
+    /id="preheatNum" type="number" min="0" max="9"/.test(htmlCode),
+    '三处上限不一致 = 用户填了没生效');
+  chk('设置面板打开时会回填当前值（applyPreheatUI 在模块加载时跑一次）',
+    /function applyPreheatUI\(\)/.test(appCode)
+    && /\$\('preheatNum'\)\.addEventListener\('change'/.test(appCode)
+    && /^applyPreheatUI\(\);/m.test(appCode));
+}
+
+/* ==================== 应用内更新（2026-09-23） ====================
+ *
+ * 用户要求：「在设置里增加一个版本更新，我要内置推送更新」。
+ *
+ * 这套东西的失效方式基本都**不报错**，所以断言要盯死那几条：
+ *   · 版本比较写成字符串比 → 永远收不到更新（且不报错）
+ *   · 下完自动调安装 → Android 12+ 静默忽略，用户以为功能坏了
+ *   · 检查失败被当成「已是最新」→ 用户以为查过了
+ *   · manifest 漏 REQUEST_INSTALL_PACKAGES / provider → 点了没反应
+ *   · provider authorities 三处不一致 → 安装界面弹不出来
+ */
+console.log('\n · 应用内更新（内置推送）');
+{
+  /* ① 🔴 版本比较：**必须真跑**。字符串比较和 parseFloat 的坑光看正则看不出来
+        （`'1.3.43' > '1.3.9'` 是 false，这是本功能最致命的静默失效）。 */
+  const { cmpVersion } = new Function(grabFn(appCode, 'cmpVersion') + '\nreturn { cmpVersion };')();
+  chk('🔴 1.3.43 比 1.3.9 新（字符串比较会判反 → 用户永远收不到更新）',
+    cmpVersion('1.3.43', '1.3.9') > 0, '实际 = ' + cmpVersion('1.3.43', '1.3.9'));
+  chk('1.3.43 比 1.3.42 新（相邻版本）', cmpVersion('1.3.43', '1.3.42') > 0);
+  chk('1.3.42 比 1.3.43 旧（反向为负）', cmpVersion('1.3.42', '1.3.43') < 0);
+  chk('同版本返回 0', cmpVersion('1.3.43', '1.3.43') === 0);
+  chk('带 v 前缀也认（release tag 是 v1.3.42 这种）',
+    cmpVersion('v1.3.43', '1.3.42') > 0 && cmpVersion('1.3.42', 'v1.3.43') < 0);
+  chk('末位是十进制不是单字符（1.3.10 > 1.3.9，不是进位到 1.4）',
+    cmpVersion('1.3.10', '1.3.9') > 0);
+  chk('段数不等时短的那个缺位按 0（1.4 == 1.4.0）', cmpVersion('1.4', '1.4.0') === 0);
+  chk('大版本升级认得出来（1.4 > 1.3.99）', cmpVersion('1.4', '1.3.99') > 0);
+  chk('脏值不炸也不误判新版（空串 / null 视为 0）',
+    cmpVersion('', '1.3.42') < 0 && cmpVersion(null, '1.3.42') < 0);
+
+  /* ② 🔴 下完**不许**自动装（Android 12+ 近似安装限制）——
+        这条只能静态查：`__updDone` 里出现 updInstall() 就是错的。 */
+  {
+    const done = appCode.slice(appCode.indexOf('window.__updDone ='));
+    const body = done.slice(0, done.indexOf('\n};'));
+    chk('🔴 下载完成回调里**不许**自动调 updInstall（Android 12+ 会静默忽略）',
+      !/updInstall\(\)/.test(body),
+      '自动装 = 「下载完就没反应」，是这功能最容易写错的地方');
+    chk('下载完成后把按钮改成「安装」，让用户再点一次',
+      /UPD\.downloaded = true/.test(body) && /updRender\(\)/.test(body));
+  }
+
+  /* ③ 🔴 「检查失败」不许说成「已是最新」 */
+  {
+    const cu = grabFn(appCode, 'checkUpdate');
+    chk('🔴 catch 分支只报「检查失败」，绝不写「已是最新」',
+      /catch \(e\) \{/.test(cu)
+      && /检查失败/.test(cu)
+      && !/catch[\s\S]{0,400}已是最新/.test(cu),
+      '把「没查成」说成「已是最新」= 用户以为查过了，实际什么都没查');
+    chk('静默检查（silent）失败时不打扰用户（不写提示文字）',
+      /if \(!silent\) updSetNote\('检查失败/.test(cu));
+    chk('启动时静默自动检查，且延迟发起（别跟开机那波请求抢带宽）',
+      /setTimeout\(\(\) => \{ checkUpdate\(true\); \}, \d+\)/.test(appCode));
+  }
+
+  /* ④ 更新说明按纯文本渲染（来源是网络字符串，innerHTML 就是注入面） */
+  chk('🔴 更新说明走 textContent，不许 innerHTML（GitHub body 是不可信输入）',
+    /bd\.textContent = releaseNoteText/.test(appCode)
+    && !/bd\.innerHTML/.test(appCode));
+
+  /* ⑤ 按 ABI 挑包：装错了要么装不上要么崩 */
+  {
+    const pa = grabFn(appCode, 'pickAsset');
+    chk('🔴 按本机 abi 挑对应的 APK（arm64 真机不能装到 x86_64 包）',
+      /x86_64/.test(pa) && /arm64/.test(pa));
+    chk('abi 优先问原生（Build.SUPPORTED_ABIS 才是权威，网页猜不准）',
+      /NasBridge\.deviceAbi/.test(appCode)
+      && /public String deviceAbi\(\)/.test(maCode)
+      && /Build\.SUPPORTED_ABIS/.test(maCode));
+  }
+
+  /* ⑥ 原生侧：安装能力三件套（权限 + provider + 桥方法）缺一个都「点了没反应」 */
+  {
+    chk('🔴 manifest 声明 REQUEST_INSTALL_PACKAGES（少了系统静默拒绝，不弹安装界面）',
+      /android\.permission\.REQUEST_INSTALL_PACKAGES/.test(manifest));
+    chk('🔴 manifest 有 provider，且 authorities 与代码一致',
+      /<provider/.test(manifest)
+      && /android:authorities="com\.nas\.douyin\.update"/.test(manifest)
+      && /AUTHORITY = "com\.nas\.douyin\.update"/.test(read('android/src/com/nas/douyin/UpdateProvider.java')));
+    chk('🔴 用自定义 UpdateProvider（本项目没有 androidx.core，别引 FileProvider）',
+      /android:name="\.UpdateProvider"/.test(manifest)
+      && !/androidx\.core\.content\.FileProvider/.test(manifest));
+    chk('provider 是 exported=false + grantUriPermissions=true（只临时授权给安装器）',
+      /android:exported="false"/.test(manifest)
+      && /android:grantUriPermissions="true"/.test(manifest));
+    chk('provider 的文件白名单指向 update_paths（只放行 cacheDir/update）',
+      /android:resource="@xml\/update_paths"/.test(manifest)
+      && /<cache-path name="update" path="update\/" \/>/.test(read('android/res/xml/update_paths.xml')));
+    chk('🔴 桥方法齐全（updDownload / updInstall / updClear / updHasPackage / deviceAbi）',
+      /public void updDownload\(String url, String sha256\)/.test(maCode)
+      && /public void updInstall\(\)/.test(maCode)
+      && /public void updClear\(\)/.test(maCode)
+      && /public boolean updHasPackage\(\)/.test(maCode)
+      && /public String deviceAbi\(\)/.test(maCode));
+    /* 🔴 FileUriExposedException：Android 8+ 不许把 file:// 交给别的 App */
+    const inst = read('android/src/com/nas/douyin/UpdateInstaller.java');
+    chk('🔴 安装用 content:// 而不是 file://（否则 Android 8+ 直接崩）',
+      /content:\/\/" \+ UpdateProvider\.AUTHORITY/.test(inst)
+      && /FLAG_GRANT_READ_URI_PERMISSION/.test(inst)
+      && !/Uri\.fromFile/.test(inst));
+    chk('🔴 先查「未知来源」权限再装（没开就跳设置页，别假装能装）',
+      /canRequestPackageInstalls\(\)/.test(inst)
+      && /ACTION_MANAGE_UNKNOWN_APP_SOURCES/.test(inst));
+  }
+
+  /* ⑦ 设置面板接线 */
+  chk('⚙️设置面板里有版本更新区块（#updBox）与当前版本回显',
+    /id="updBox"/.test(htmlCode) && /id="updCur"/.test(htmlCode)
+    /* 版本号现在跟在「版本更新」标题同一行（小字弱化），不再是右上角的独立胶囊 ——
+       两个胶囊并排会让人不知道点哪个。断言按现在的结构查。 */
+    && /版本更新\s*<b id="updCur">/.test(htmlCode));
+  chk('检查更新 / 下载安装 是两个独立按钮',
+    /id="updCheck"/.test(htmlCode) && /id="updGo"/.test(htmlCode));
+  /* 🔴 「检查更新」必须在 .upd-head 那一行里（与「预加载条数」的数字框左右对齐）；
+     掉到下面的 .upd-btns 里就又变成左下角那个孤零零的样子了。 */
+  chk('🔴 「检查更新」按钮在标题行内（与上方「预加载条数」数字框同列对齐，不许掉回左下角）',
+    /<div class="upd-head">[\s\S]*?id="updCheck"[\s\S]*?<\/div>/.test(htmlCode)
+    && !/<div class="upd-btns">[\s\S]*?id="updCheck"/.test(htmlCode));
+  chk('有下载进度条元素', /id="updBar"/.test(htmlCode) && /id="updBarFill"/.test(htmlCode));
+  chk('版本号从 /api/config 读，前端不写死版本字符串',
+    /S\.config && S\.config\.versionName/.test(appCode));
+  chk('网页版（无原生桥）不许假装能装，要跳发布页',
+    /网页版没法直接安装/.test(app)
+    /* 🔴 必须查**原文 app**，不能查 appCode：stripComments 的行注释规则会把
+       `//` 之后全删掉，而这些 URL 字符串里写着 `https://` ——
+       用 appCode 查必然假红（这坑在 stripComments 定义处就有警告，这里又踩了一次）。 */
+    && /releases\/latest/.test(app));
+}
+
 /* ④ 🔴 系统栏：网页改不了安卓状态栏颜色，只能由原生改 ——
       漏了的话浅色界面顶上永远留一条黑边，看着像没换干净 */
 {
@@ -5104,21 +5309,37 @@ console.log('\n\x1b[1m· 飞牛 fnOS 应用包\x1b[0m');
     const peek2 = JSON.parse((await get('/api/library?peek=1&v=-1')).body);
     chk('peek 版本号对不上时带上完整列表', peek2.changed === true && Array.isArray(peek2.videos));
 
-    /* 重新扫描靠 refresh=1 让后端真扫：走的是实时扫描，且扫完 version 必须变。
+    /* 重新扫描靠 refresh=1 让后端真扫。⚠️ 2026-09-18 起契约变了：
+     * 深扫实测 13 分钟，refresh=1 **不再同步等**，而是「立刻回话（手上这份是旧的
+     * 片库、带 pendingScan）+ 后台扫」，前端靠 ?peek=1 轮询扫完自己换。
      *
-     * ⚠️ 这两条只在**服务配了真实片源**时才成立：demo 模式（没填服务地址）走的是
-     *    另一条路 —— 返回演示素材、既不扫描、也没有 version 概念。
-     *    以前它们在「服务没在跑」时被整段跳过，所以一直没人发现需要这个前置，
-     *    直到有人拿一个 demo 实例跑 check.js（2026-09-20 多设备同步那轮就这么撞上了）。
-     *    这里显式跳过并**打印出来** —— 静默跳过等于把断言变没了。 */
-    const isDemoLib = !!(lib.videos && lib.videos[0] && lib.videos[0].demo);
+     * 所以断言要查的是：**有没有真把后台扫描踢起来**，而不是「这次响应是不是新扫的」。
+     * 老写法断言 `cached === false && version > lib.version` 只在「同步等」那版成立，
+     * 在新契约下**语义已经反了**（新契约里 cached 是 true、version 还不涨）。
+     *
+     * ⚠️ 另外两个必须显式跳过、并**打印出来**的前置（静默跳过等于把断言变没了）：
+     *   ① demo 模式（没填服务地址）不扫描、没有 version 概念；
+     *   ② 后台那一路刚扫完又立刻重扫（比如片源一直读不到、空转重试）时
+     *      `scanning` 有窗口期是 false —— 看 pendingScan 会偶发假红。
+     *      这是**环境抖动**，不是代码坏了：kickBackgroundScan() 有单飞，
+     *      refresh=1 无论如何都会复用/踢起那一路，语义上一定合规。 */
+    const isDemoLib = !!(lib.demo || lib.configReady === false);
     if (isDemoLib) {
-      console.log('  \x1b[90m· 服务是演示模式（没配片源），跳过 refresh/version 两条\x1b[0m');
+      console.log('  \x1b[90m· 服务是演示模式（没配片源），跳过 refresh 两条\x1b[0m');
     } else {
       const libFresh = JSON.parse((await get('/api/library?refresh=1')).body);
-      chk('refresh=1 返回实时扫描结果（不走缓存）', libFresh.cached === false && typeof libFresh.scannedAt === 'number');
-      chk('refresh=1 之后 version 递增（前端靠它认出新数据）', libFresh.version > lib.version,
-        lib.version + ' → ' + libFresh.version);
+      /* 新契约：立刻回话 + 后台扫。scrubbing 到「已经挂在旧片库上等着换」即算过。 */
+      const kicked = libFresh.pendingScan === true || libFresh.scanning === true
+        || libFresh.version > lib.version;
+      chk('refresh=1 走后台重扫（立刻回话 + pendingScan/version 动，不再同步等十几分钟）',
+        kicked, 'pendingScan=' + libFresh.pendingScan + ' scanning=' + libFresh.scanning
+          + ' version=' + lib.version + '→' + libFresh.version);
+      /* 新契约下**不能**再要求 cached === false：cached 描述的是「手上这份片库是缓存」，
+         后台扫的时候我们拿的正是旧缓存 —— 这条老断言已经跟契约对不上了。 */
+      chk('refresh=1 不再同步阻塞（响应里明确区分「这份是旧数据」与「有新数据了」）',
+        libFresh.pendingScan === undefined || libFresh.pendingScan === true
+          || libFresh.version > lib.version,
+        JSON.stringify({ pendingScan: libFresh.pendingScan, cached: libFresh.cached }).slice(0, 120));
     }
 
     // 缩略图：统计接口要能报出张数 / 占用 / 落盘目录
