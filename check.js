@@ -3707,6 +3707,43 @@ function grabFn(src, name) {
   throw new Error('括号不配对 ' + name);
 }
 
+/**
+ * 从 **Java** 源码里摘出一个方法体（大括号配对）。
+ *
+ * 🔴 为什么不能用 grabFn：它只认 `function name(`，而 Java 方法长这样 ——
+ *    `boolean hasDownloaded(String ver) {` / `void download(final String url, ...) {`
+ *    没有 `function` 关键字。硬用 grabFn 会直接抛「找不到」，断言全废（2026-09-23 踩到）。
+ *
+ * ⚠️ 形参表里可能有 `final`、泛型、注解，所以这里**跳过到第一个 `(`** 后按括号配对，
+ *    再从形参表结束处找函数体的 `{` —— 和 grabFn 同一套思路，只是不限 `function` 前缀。
+ * ⚠️ 找不到（方法被改名/删掉）时返回**空串**而不是抛异常：
+ *    调用方那些 `chk(...)` 自然会红，而且报的是「断言不成立」这种能看懂的信息，
+ *    比一句「找不到 xxx」的堆栈有用 —— 堆栈还会把整个 check 直接打断、后面全不跑。
+ */
+function grabJava(src, name) {
+  const re = new RegExp('(?:^|[;}\\s])' + name + '\\s*\\(', 'm');
+  const m = re.exec(src);
+  if (!m) return '';
+  const i = m.index + (m[0].length - m[0].replace(/^\s*/, '').length);
+  let j = src.indexOf('(', m.index);
+  if (j < 0) return '';
+  let pd = 0;
+  for (; j < src.length; j++) {
+    const c = src[j];
+    if (c === '(') pd++;
+    else if (c === ')') { pd--; if (pd === 0) { j++; break; } }
+  }
+  const b = src.indexOf('{', j);
+  if (b < 0) return '';
+  let d = 0;
+  for (let k = b; k < src.length; k++) {
+    const c = src[k];
+    if (c === '{') d++;
+    else if (c === '}') { d--; if (d === 0) return src.slice(i, k + 1); }
+  }
+  return '';
+}
+
 /** 从源码里摘出**一整条调用语句**（括号配对，末尾补 `;`）。
  *  grabFn 只能抠 `function name(`，抠不出
  *  `$('x').addEventListener('click', (e) => { ... })` 这种匿名回调 ——
@@ -4067,7 +4104,11 @@ console.log('\n · 应用内更新（内置推送）');
       !/updInstall\(\)/.test(body),
       '自动装 = 「下载完就没反应」，是这功能最容易写错的地方');
     chk('下载完成后把按钮改成「安装」，让用户再点一次',
-      /UPD\.downloaded = true/.test(body) && /updRender\(\)/.test(body));
+      /* ⚠️ 这里**不再**断言 `UPD.downloaded = true`（2026-09-23 删掉了这个字段）：
+         「有没有下好的包」的真源在原生侧的伴随文件，网页内存里记一份必然和它跑偏
+         （App 重启后内存清零、文件还在）。现在只要求回调里调 updRender() 刷新按钮态。 */
+      /updRender\(\)/.test(body) && !/UPD\.downloaded/.test(body),
+      '按钮态由 updRender() 现问原生 updCached() 得出，别在网页侧再记一份');
   }
 
   /* ③ 🔴 「检查失败」不许说成「已是最新」 */
@@ -4117,11 +4158,14 @@ console.log('\n · 应用内更新（内置推送）');
     chk('provider 的文件白名单指向 update_paths（只放行 cacheDir/update）',
       /android:resource="@xml\/update_paths"/.test(manifest)
       && /<cache-path name="update" path="update\/" \/>/.test(read('android/res/xml/update_paths.xml')));
-    chk('🔴 桥方法齐全（updDownload / updInstall / updClear / updHasPackage / deviceAbi）',
-      /public void updDownload\(String url, String sha256\)/.test(maCode)
+    chk('🔴 桥方法齐全（updDownload / updInstall / updClear / updHasPackage / updSweep / deviceAbi）',
+      /* ⚠️ 签名必须**带版本号**（2026-09-23）—— 见下面「更新包版本匹配」一节：
+         少了 version 参数就没法判断缓存里的包是谁的，必然重演「装了旧包」。 */
+      /public void updDownload\(String url, String sha256, String version\)/.test(maCode)
       && /public void updInstall\(\)/.test(maCode)
       && /public void updClear\(\)/.test(maCode)
-      && /public boolean updHasPackage\(\)/.test(maCode)
+      && /public boolean updHasPackage\(String version\)/.test(maCode)
+      && /public void updSweep\(String curVersion\)/.test(maCode)
       && /public String deviceAbi\(\)/.test(maCode));
     /* 🔴 FileUriExposedException：Android 8+ 不许把 file:// 交给别的 App */
     const inst = read('android/src/com/nas/douyin/UpdateInstaller.java');
@@ -4156,6 +4200,144 @@ console.log('\n · 应用内更新（内置推送）');
        `//` 之后全删掉，而这些 URL 字符串里写着 `https://` ——
        用 appCode 查必然假红（这坑在 stripComments 定义处就有警告，这里又踩了一次）。 */
     && /releases\/latest/.test(app));
+
+  /* ------------------------------------------------------------------
+   * ⑧ 🔴🔴 更新包「版本匹配」+「装完自动删包」（2026-09-23 真实 bug 修复）
+   *
+   * 用户报的原文：
+   *   「无法正常更新，可以检测到更新但是点了安装就会安装之前下载的版本，
+   *     要加一个安装后删除安装包」
+   *
+   * 根因：`hasDownloaded()` 只判断「文件存在且非空」，**完全不看版本**。于是
+   *   下了 1.3.47 → 系统安装界面点取消 → 1.3.48 发布 → 点按钮 → 装上缓存里的 1.3.47。
+   *
+   * 这一节守的就是「不许再退化回去」。四条线：
+   *   a) 有伴随文件（记版本号）—— 没它，原生根本无从判断缓存是谁的
+   *   b) 下载时先删旧包、成功后写伴随文件（顺序不能反）
+   *   c) 拉起安装器前把「尝试安装的版本」**写进磁盘**（不是只存内存！）
+   *   d) 启动时比对当前版本 → 变了 = 装成功了 → 删包
+   * ------------------------------------------------------------------ */
+  {
+    /* ⚠️ `inst` 在上面 ⑥ 那个块里是块级作用域，这里必须自己再读一份
+       （别改成提升到外面 —— 那会让 ⑥ 的「局部变量」意图失效） */
+    const inst = stripComments(read('android/src/com/nas/douyin/UpdateInstaller.java'));
+
+    /* a) 伴随文件必须存在，且路径就在 cacheDir/update 下（和 APK 同目录，一起删） */
+    chk('🔴 有「记版本号」的伴随文件（没它无法判断缓存里的包是哪个版本）',
+      /META_NAME\s*=/.test(inst) && /app-update\.json/.test(inst),
+      '只有 apk 没有 accompanying meta = hasDownloaded 只能退化成「有没有文件」');
+    chk('伴随文件与 APK 同目录（cacheDir/update），删包时一起删',
+      /File metaFile\(\)[\s\S]{0,200}getCacheDir\(\), "update"/.test(inst)
+      && /private void deletePackage\(\)[\s\S]{0,300}metaFile\(\)/.test(inst));
+
+    /* b) hasDownloaded 必须**拿版本号比对**，不许只问「有没有文件」 */
+    const hd = grabJava(inst, 'hasDownloaded');
+    chk('🔴 hasDownloaded(ver) 拿版本号比对伴随文件（不许只判断文件存在）',
+      /ver\.equals\(readMetaVersion\(\)\)/.test(hd),
+      '这就是用户那个 bug 的原点：文件在 ≠ 是这个版本');
+    chk('🔴 传空版本号时才退化成老行为，且注释里写明「别这么用」',
+      /if \(ver == null \|\| ver\.isEmpty\(\)\) return true;/.test(hd));
+
+    /* c) 下载：先删旧包 → 成功后写伴随文件（顺序反了会把半截包打上正确版本标签）*/
+    const dl = grabJava(inst, 'download');
+    const delIdx = dl.indexOf('deletePackage()');
+    const metaIdx = dl.indexOf('writeMeta(version, sha256)');
+    chk('🔴 下载开头先删旧包（半截文件 + 旧版本号 = 最坏组合）',
+      delIdx >= 0 && delIdx < dl.indexOf('open(url)'));
+    chk('🔴 校验**通过之后**才写伴随文件（顺序反了半截包也会被标成本次版本）',
+      metaIdx > 0 && metaIdx > dl.indexOf('md.digest()'),
+      '先写 meta 后校验 = 下次直接把这个半截包装上去');
+
+    /* d) 拉起安装器前：把「尝试安装的版本」写进磁盘 */
+    const il = grabJava(inst, 'install');
+    chk('🔴 拉起安装器**之前**记下「尝试安装的版本」',
+      /installAttemptVer = readMetaVersion\(\)/.test(il)
+      && il.indexOf('installAttemptVer = readMetaVersion()') < il.indexOf('act.startActivity(i)'),
+      '装完就是新进程了，内存变量必须提前落盘，否则永远删不掉包');
+    chk('🔴 「尝试安装的版本」要**写进磁盘**（只存内存的话新进程读不到）',
+      /writeMeta\(installAttemptVer, null, true\)/.test(il),
+      '装成功后是新进程，只看内存 = 装完自动删包永远不生效');
+    chk('伴随文件有独立的 attempt 字段（和下载时写的 version 分开）',
+      /readMetaAttempt\(\)/.test(inst)
+      && /metaString\("attempt"\)/.test(inst)
+      && /o\.put\("attempt"/.test(inst));
+
+    /* e) 装完自动删：判据是「现在跑的版本 == 交给安装器的版本」→ 说明装成功了。
+       🔴 方向极易写反，而且**写反了看着也很合理**（第一版就是这么错的）：
+            装成功  → attempt == curVer → 必须**删**
+            被取消  → attempt != curVer → 必须**留**（用户还能再点一次）
+          写反的后果是两头都错：包永远删不掉（白占 30MB）+ 一取消反而把包删了（重试要重下）。
+          所以既要钉**正向**（equals 才删），也要钉**反向**（不许出现 !equals）。 */
+    const sw = grabJava(inst, 'sweepAfterInstall');
+    chk('🔴 sweepAfterInstall 优先读**磁盘上**的 attempt（装成功后是新进程）',
+      /installAttemptVer != null \? installAttemptVer : readMetaAttempt\(\)/.test(sw),
+      '只看内存变量 = 真实升级场景（新进程）永远不删');
+    chk('🔴 判据方向：attempt == curVer（现在跑的正是那个版本）才删包',
+      /if \(attempted\.equals\(curVer\)\)/.test(sw)
+      && /if \(attempted\.equals\(curVer\)\)[\s\S]{0,300}deletePackage\(\)/.test(sw),
+      '相等 = 装成功 = 删；写成「不等才删」会把两个方向全搞反');
+    chk('🔴 不许写成「不等才删」（第一版就是这个反的写法）',
+      !/!\s*attempted\.equals\(curVer\)/.test(sw),
+      '不等 = 装完却没变成那个版本 = 没装上 → 包要留着让用户重试');
+
+    /* f) 网页侧：判据必须是「带版本号问原生」，不是网页内存里的标志
+       🔴 一律查 **appCode**（去了注释的）—— 这几条都是**负向**断言
+          （「不许出现旧写法」），注释里正解释着这个旧写法长什么样，
+          查原文必然假红。stripComments 定义处的警告在这里第三次生效。 */
+    chk('🔴 网页侧 updCached() 带版本号问原生（UPD.latest 必传）',
+      /function updCached\(\)/.test(appCode)
+      && /updHasPackage\(UPD\.latest\)/.test(appCode),
+      '传空串 = 退化成「有文件就算有」 = bug 复现');
+    chk('🔴 不许有「只问有没有文件、不问版本」的调用（updHasPackage 必须带参）',
+      !/updHasPackage\(\s*\)/.test(appCode) && !/updHasPackage\(''\)/.test(appCode),
+      '注释里提到这种写法不算 —— 所以查的是去注释后的代码');
+    chk('🔴 网页侧不许再用 UPD.downloaded 这种内存标志判「已下好」',
+      !/UPD\.downloaded/.test(appCode) && /updCached\(\)/.test(appCode),
+      '内存标志在 App 重启后就没了，而缓存文件还在 —— 两边必然跑偏');
+    chk('🔴 UPD.latest 真的被赋值（checkUpdate 查到新版时写进去）',
+      /UPD\.latest = latest/.test(appCode));
+    /* 🔴 开查前必须先清空目标版本 —— 这是个 async 函数，等待网络期间用户
+       可能点「安装」，那时若 UPD.latest 还是上一轮的值，就会拿旧版本号
+       去问原生「缓存里有没有这个包」，于是装了一个不属于本次目标的包。
+       清空后 updCached() 恒为 false → 只会走「下载」，下载路径自带版本号，不会装错。 */
+    chk('🔴 checkUpdate 开头先清 UPD.latest（避免 await 期间用上一轮的目标版本）',
+      /async function checkUpdate\(silent\) \{[\s\S]{0,400}UPD\.latest = '';/.test(appCode),
+      '不清 = 检查中的那几百毫秒里点「安装」会拿上一轮的版本号去匹配缓存');
+    chk('🔴 「已是最新」和「检查失败」两条分支都要清 UPD.latest / UPD.url',
+      /if \(!newer\) \{[\s\S]{0,600}UPD\.latest = '';/.test(appCode)
+      && /catch \(e\) \{[\s\S]{0,500}UPD\.latest = '';/.test(appCode),
+      '留着旧目标 = 按钮显示「安装」却指向一个没验证过的版本');
+    chk('🔴 下载时把目标版本号传给原生（updDownload 的第三个参数）',
+      /updDownload\(UPD\.url, UPD\.sha \|\| '', UPD\.latest \|\| ''\)/.test(appCode));
+
+    /* g) 启动时调一次 sweep —— 位置必须在拿到版本号之后。
+       🔴 查 `app`（原文）而不是 appCode：这里要验证的是**调用语句真的写在那儿**，
+          而 `appCode.indexOf` 对多行块注释的剥离会让偏移量对不上；
+          测试目标是「存在 + 相对顺序」，用原文最直接。 */
+    chk('🔴 启动后拿到当前版本号就调 updSweep（装完自动删的触发点）',
+      /window\.NasBridge\.updSweep\(curVer\)/.test(app)
+      && /const curVer = appVersion\(\)\.name/.test(app),
+      '不调 = 包永远留在缓存里，用户要的「安装后删除安装包」没实现');
+    /* ⚠️ 锚点必须选**唯一的**字符串。
+       app.js 里有 **两处** `await loadLibrary(false)`（另一处在「切到演示模式」里），
+       直接用 `indexOf('await loadLibrary(false)')` 会命中靠前那个（193958 < 204058），
+       于是这条断言**永远假红** —— 明明位置是对的。
+       改用 `sweep 调用` 与 `boot 里那句 loadLibrary` 的**紧邻**关系来判断：
+       中间只隔着一个 `} catch (_) {}`。 */
+    chk('🔴 updSweep 调用在 boot 里、loadLibrary 之前（越早删越好）',
+      /updSweep\(curVer\);\s*\}\s*catch \(_\) \{\}\s*await loadLibrary\(false\);/.test(app),
+      '此刻才刚拿到当前版本号；放太晚用户可能已经又去点「检查更新」了');
+    chk('sweep 调用被 try/catch 包住（网页版没有原生桥，不能影响启动）',
+      /try \{[\s\S]{0,400}updSweep\(curVer\)[\s\S]{0,300}\} catch/.test(app));
+
+    /* h) 取消下载要真删包 —— 堵住「包留下来了」这个洞的上游 */
+    chk('🔴 有「取消下载」按钮，且点了会调原生删包',
+      /id="updDiscard"/.test(htmlCode)
+      && /NasBridge\.updClear/.test(app),
+      '不做这一步，被取消的包就一直躺在缓存里等着下次被误装');
+    chk('「取消下载」按钮只在该删的时候显示（没包可删不摆空按钮）',
+      /dis\.hidden = UPD\.downloading \|\| !updCached\(\)/.test(app));
+  }
 }
 
 /* ------------------------------------------------------------------

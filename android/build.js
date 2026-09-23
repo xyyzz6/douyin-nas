@@ -49,8 +49,8 @@ const APP = {
   //       想手写一个新基线（比如发 1.4）就自己改这儿，下一轮从 1.4.1 接着涨。
   //    改大版本号时**别改 versionCode 之外的东西**：它是 Android 判断「谁更新」的唯一依据，
   //    只允许单调递增，绝不能因为改 versionName 而变小（否则装机时系统拒装 / 用户降级）。
-  versionCode: 51,
-  versionName: '1.3.48',
+  versionCode: 53,
+  versionName: '1.3.50',
   keystore: path.join(HERE, 'debug.keystore'),
   ksPass: 'android',
   ksAlias: 'androiddebugkey',

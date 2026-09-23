@@ -675,10 +675,14 @@ public class MainActivity extends Activity {
         /**
          * 下载更新包。url 来自 GitHub Release 的 browser_download_url；
          * sha256 为空表示跳过校验（理论上不会，网页侧会带上）。
+         *
+         * 🔴 version 必须传（2026-09-23 修 bug 加的）：它写进伴随文件，
+         *    `updHasPackage(ver)` 靠它判断「缓存里这个包是不是当前要装的那个版本」。
+         *    不传的后果就是用户报的「检测到新版，点了安装却装了之前下载的版本」。
          */
         @android.webkit.JavascriptInterface
-        public void updDownload(String url, String sha256) {
-            updater().download(url, sha256);
+        public void updDownload(String url, String sha256, String version) {
+            updater().download(url, sha256, version);
         }
 
         /** 安装已下好的包（用户点「安装」时才调；会先查「未知来源」权限） */
@@ -693,10 +697,28 @@ public class MainActivity extends Activity {
             updater().clear();
         }
 
-        /** 本地是否已有下好的包 —— 网页据此决定按钮显示「下载」还是「安装」 */
+        /**
+         * 本地是否已有下好的包 —— 网页据此决定按钮显示「下载」还是「安装」。
+         *
+         * @param version 期望的版本号。**带上它**才能避免「装了缓存的旧包」；
+         *                传空串则退化成「有文件就算有」的老行为（仅供兼容，别这么用）。
+         */
         @android.webkit.JavascriptInterface
-        public boolean updHasPackage() {
-            return updater().hasDownloaded();
+        public boolean updHasPackage(String version) {
+            return updater().hasDownloaded(version);
+        }
+
+        /**
+         * 启动时补删「上次装成功了」的安装包（2026-09-23 用户要求）。
+         *
+         * 把包交给系统安装器后就收不到可靠回调了，所以用版本号当成功信号：
+         * **下次启动时跑的版本 == 上次交给安装器的版本** → 那次装成功了 → 删包。
+         * 详见 UpdateInstaller.sweepAfterInstall()（那里有一条「方向易错」的对照表）。
+         * 由网页在能拿到当前版本号时调一次（启动之后任意时刻都行）。
+         */
+        @android.webkit.JavascriptInterface
+        public void updSweep(String curVersion) {
+            updater().sweepAfterInstall(curVersion);
         }
 
         /**

@@ -799,6 +799,10 @@
         <div class="upd-bar" id="updBar" hidden><i id="updBarFill"></i></div>
         <!-- 「下载并安装」在有新版时才出现，靠右与上面按钮同列 -->
         <div class="upd-btns">
+          <!-- 取消下载：把已经下好的包**删掉**（2026-09-23 加的）。
+               存在的意义是堵住「包留下来了」这个洞的一侧 —— 用户点了取消，
+               缓存里那个包就还在等着下次被误装。见 app.js 里 updDiscard() 的注释。 -->
+          <button class="btn ghost" id="updDiscard" type="button" hidden>取消下载</button>
           <button class="btn primary" id="updGo" type="button" hidden>下载并安装</button>
         </div>
       </div>

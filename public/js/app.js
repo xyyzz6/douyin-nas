@@ -3293,12 +3293,17 @@ function cmpVersion(a, b) {
 /** 更新流程的临时状态（只活在本次页面加载里，不持久化）*/
 const UPD = {
   release: null,     // 最近一次查到的 release（有新版才有意义）
+  latest: '',        // 🔴 目标版本号（如 "1.3.48"）。装包/缓存判断都靠它，
+                     //    少了它就会出现「检测到新版、却装了以前下载的旧包」。
   url: '',           // 该 abi 的 APK 直链
   sha: '',           // 该 abi 的 APK sha256（GitHub 不提供，留空 = 原生跳过哈希校验）
   size: 0,
   downloading: false,
   installing: false,
-  downloaded: false,
+  /* ⚠️ 没有 `downloaded` 这个字段（2026-09-23 删掉的）。
+     「缓存里有没有这次要装的包」**不能**记在网页内存里 ——
+     App 一重启这个标志就没了，而缓存文件还在（真源在原生侧）。
+     统一用 updCached() 现问原生，别再加回来。 */
 };
 
 /**
@@ -3371,9 +3376,34 @@ function updRender() {
   const go = $('updGo');
   if (go) {
     go.hidden = !UPD.release;
-    go.textContent = UPD.downloading ? '下载中…' : (UPD.downloaded ? '安装' : '下载并安装');
+    /* 🔴 判据是 updCached()，**不是** UPD.downloaded。
+     * `UPD.downloaded` 只活在本次页面加载里：App 重启后缓存里明明有个**本版本正确**的包，
+     * 按钮却会显示「下载并安装」→ 用户以为要重下。反过来也不能只看「有没有文件」——
+     * 那正是用户报的「装了以前下载的旧版本」那个 bug。见 updGo() 的注释。 */
+    const ready = UPD.downloading ? false : updCached();
+    go.textContent = UPD.downloading ? '下载中…' : (ready ? '安装' : '下载并安装');
     go.disabled = UPD.downloading;
   }
+  /* 「取消下载」只在**真有包压在缓存里**时出现 —— 没包可删时摆个按钮只会让人困惑 */
+  const dis = $('updDiscard');
+  if (dis) dis.hidden = UPD.downloading || !updCached();
+}
+
+/**
+ * 缓存里是否已经有一个**正好是这次要装的那个版本**的包。
+ *
+ * 三重条件缺一不可：
+ *   1. 有原生桥（网页版永远「没有」）；
+ *   2. 有明确的**目标版本号**（`UPD.latest`）—— 没有它就无法判断缓存是谁的，
+ *      宁可说「没有」让用户重下，也不能拿不准的包去装；
+ *   3. 原生侧比对伴随文件里的版本，一致才算。
+ *
+ * ⚠️ 原生的 `updHasPackage('')` 会退化成「有文件就算有」的老行为，**这里绝不传空串**。
+ */
+function updCached() {
+  if (!(window.NasBridge && window.NasBridge.updHasPackage)) return false;
+  if (!UPD.latest) return false;
+  try { return !!window.NasBridge.updHasPackage(UPD.latest); } catch (_) { return false; }
 }
 
 /**
@@ -3385,6 +3415,14 @@ function updRender() {
 async function checkUpdate(silent) {
   const btn = $('updCheck');
   if (!silent && btn) { btn.disabled = true; btn.textContent = '检查中…'; }
+  /* 🔴 开查前先把「目标版本」清空（2026-09-23）。
+     为什么不能等结果回来再清：这是个 async 函数，等待网络的那段时间里
+     用户完全可能点一下「安装 / 下载」—— 那时 `UPD.latest` 如果还是**上一轮的**值，
+     就会拿旧版本号去问原生「缓存里有没有这个包」，答「有」就装了一个不属于
+     本次目标版本的包。清空后 updCached() 一律返回 false → 只会走「下载」，
+     而下载路径本身也带版本号，不会再装错。 */
+  UPD.latest = '';
+  UPD.url = '';
   try {
     const rel = await api.latestRelease();
     const tag = (rel && (rel.tag_name || rel.name)) || '';
@@ -3393,7 +3431,15 @@ async function checkUpdate(silent) {
     const newer = curV && cmpVersion(latest, curV) > 0;
 
     if (!newer) {
+      /* 🔴 `UPD.latest` 必须一起清掉（2026-09-23）：
+         它决定按钮显示「安装」还是「下载并安装」、以及下载时带哪个版本号。
+         留着上一轮的旧值会得出**错的**按钮态 —— 比如「刚装完 1.3.48、
+         再查发现已是最新」这个再正常不过的时刻，UPD.latest 还挂着 1.3.48，
+         而缓存里刚好还剩个 1.3.48 的包（sweep 之前的一瞬）→ 按钮显示「安装」。
+         清干净 = 没有目标版本 = 什么都不给装。 */
       UPD.release = null;
+      UPD.latest = '';
+      UPD.url = '';
       updRender();
       $('updNew').hidden = true;
       { const dot = $('meSettings'); if (dot) dot.classList.remove('upd-dot'); }
@@ -3403,6 +3449,7 @@ async function checkUpdate(silent) {
 
     /* 有新版本：记下来 + 显示说明 + 打红点 */
     UPD.release = rel;
+    UPD.latest = latest;          // 目标版本号：下载时带给原生，装包时要靠它校验
     const asset = pickAsset(rel);
     UPD.url = asset ? asset.browser_download_url : '';
     UPD.sha = '';
@@ -3417,7 +3464,11 @@ async function checkUpdate(silent) {
     updRender();
   } catch (e) {
     /* 🔴 红线 1：失败**不是**「已是最新」 —— 必须原样说「没查成」 */
+    /* 同样要清 UPD.latest：查失败时我们连「最新是几」都不知道，
+       留着上一轮的值会让按钮态和下载版本号都指向一个**没验证过**的目标。 */
     UPD.release = null;
+    UPD.latest = '';
+    UPD.url = '';
     updRender();
     if (!silent) updSetNote('检查失败：' + (e && e.message ? e.message : '网络不通') + '。请稍后再试。', true);
   } finally {
@@ -3439,10 +3490,14 @@ function updGo() {
     try { window.open(UPD.url, '_blank'); } catch (_) { location.href = UPD.url; }
     return;
   }
-  /* 已经下好过同一个包 → 直接进安装（省掉一次几十 MB 的下载） */
-  let has = false;
-  try { has = !!window.NasBridge.updHasPackage(); } catch (_) {}
-  if (has && !UPD.downloading) { updInstall(); return; }
+  /* 🔴 只有「缓存里的包正好是**这次要装的那个版本**」才跳过下载。
+     2026-09-23 修的 bug：这里原来只问「有没有文件」，于是
+     「下了 1.3.47 → 在系统安装界面点了取消 → 1.3.48 发布后再点按钮」
+     会**跳过下载，直接装缓存里那个 1.3.47** —— 用户看到的就是
+     「能检测到更新，但点了安装装的是之前下载的版本」。
+     现在判据换成了 updCached()：把目标版本号传给原生，让它比对伴随文件里的版本，
+     不匹配一律当「没有」→ 走下载（下载开头也会先把旧包删掉）。 */
+  if (updCached() && !UPD.downloading) { updInstall(); return; }
 
   UPD.downloading = true;
   updRender();
@@ -3451,7 +3506,7 @@ function updGo() {
   if (fill) fill.style.width = '0%';
   updSetNote('正在下载更新包，请保持网络畅通…');
   try {
-    window.NasBridge.updDownload(UPD.url, UPD.sha || '');
+    window.NasBridge.updDownload(UPD.url, UPD.sha || '', UPD.latest || '');
   } catch (e) {
     UPD.downloading = false;
     updRender();
@@ -3489,9 +3544,10 @@ window.__updDone = (r) => {
   const bar = $('updBar');
   if (r && r.ok) {
     if (bar) bar.hidden = true;
-    UPD.downloaded = true;
     updSetNote('下载完成（' + (r.mb || '?') + ' MB）。点下面的按钮开始安装。');
-    /* 按钮改成「安装」——用户再点一次，满足「近似安装」要求的点击动作 */
+    /* 按钮改成「安装」——用户再点一次，满足「近似安装」要求的点击动作。
+       ⚠️ 这里不用记「已下好」：`updRender()` 会现问原生 updCached()，
+          此刻伴随文件刚写好，版本号一致 → 自然显示「安装」。 */
     const go = $('updGo');
     if (go) { go.disabled = false; go.hidden = false; }
     updRender();
@@ -3514,9 +3570,22 @@ window.__updDone = (r) => {
 /* ---- 面板事件 ---- */
 $('updCheck').addEventListener('click', () => checkUpdate(false));
 $('updGo').addEventListener('click', () => {
-  /* 已经下好 → 直接装；否则先下 */
-  if (UPD.downloaded) { updInstall(); return; }
+  /* 缓存里已经有「这次要装的版本」→ 直接装；否则先下。
+     🔴 判据统一走 updCached()（带版本号问原生），别用 UPD.downloaded —— 那个标志
+        只在本次页面加载里有效，冷启动进来必然是 false。 */
+  if (updCached() && !UPD.downloading) { updInstall(); return; }
   updGo();
+});
+/* 取消下载 = 删掉已经下好的包（2026-09-23）。
+   🔴 这个按钮不是「礼貌性」的，它堵的是一个真洞：
+      下好包 → 在系统安装界面点取消 → 包留在 cacheDir 里没人管 →
+      下次有新版本时**如果不比对版本**，就会把那个旧包装上去（用户报的 bug）。
+      虽然版本比对已经能兜住「装错版本」，但留着没用的包对用户没有任何好处：
+      占几十 MB、而且下次还得再删一遍。用户按了取消就该真的清干净。 */
+$('updDiscard').addEventListener('click', () => {
+  try { if (window.NasBridge && window.NasBridge.updClear) window.NasBridge.updClear(); } catch (_) {}
+  updSetNote('已取消，安装包已删除。想装的时候可以重新下载。');
+  updRender();
 });
 
 /* 面板一打开就刷一次（版本号来自 /api/config，可能比面板构建晚到） */
@@ -5584,6 +5653,17 @@ document.addEventListener('visibilitychange', () => {
     S.demoMode = true;
     S.mode = 'demo';
   }
+  /* 🔴 「装完自动删安装包」（2026-09-23 用户要求）：
+     版本号现在拿到了（`S.config.versionName` 来自 PackageManager），趁早把这件事做掉。
+     语义见 UpdateInstaller.sweepAfterInstall()：把包交给系统安装器后收不到可靠回调，
+     所以用「下次启动时运行版本 ≠ 上次尝试安装的版本」当**安装成功**的信号。
+     ⚠️ 必须在这里调（而不是 setInterval 或更晚）：此刻才刚拿到当前版本号；
+        而且越早删越好 —— 用户可能马上又去点「检查更新」，那会儿缓存里不该留着旧包。
+     ⚠️ try/catch 包住：网页版没有 NasBridge，报错不能影响启动。 */
+  try {
+    const curVer = appVersion().name;
+    if (curVer && window.NasBridge && window.NasBridge.updSweep) window.NasBridge.updSweep(curVer);
+  } catch (_) {}
   await loadLibrary(false);
   // 内嵌 ffmpeg 是**后台置备**的（首次启动要解出 30MB 到 filesDir，几百毫秒到几秒），
   // 而 S.ffmpeg 只在上面读了那一次 —— 如果启动足够快，会读到「还在准备」。
