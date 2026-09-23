@@ -67,4 +67,14 @@ function icon(size, opt) {
   return require('./icon.js').icon(size, opt);
 }
 
-module.exports = { encode, icon };
+/**
+ * 画**自适应图标**的前景层（Android 8+）。
+ *
+ * ⚠️ 同样只是转发到 `lib/icon.js` 的 `adaptiveForeground()`。
+ *    前景按 108dp 画布给（内容落在中间 72dp 安全区），系统负责套蒙版。
+ */
+function adaptiveForeground(size) {
+  return require('./icon.js').adaptiveForeground(size);
+}
+
+module.exports = { encode, icon, adaptiveForeground };

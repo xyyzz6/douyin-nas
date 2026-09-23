@@ -1,20 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 冷启动时先把图标亮出来，别给用户一片纯黑。
-     ⚠️ 这是 WebView 里 .splash 启动动画的**前一帧**，两者必须看起来是同一个画面，
-        否则从原生窗口背景切到 WebView 会「跳一下」（图标忽然变大/位移）。
+<!--
+  冷启动时先把图标亮出来，别给用户一片纯黑。
+  ⚠️ 这是 WebView 里 .splash 启动动画的**前一帧**，两者必须看起来是同一个画面，
+     否则从原生窗口背景切到 WebView 会「跳一下」（图标忽然变大/位移）。
 
-     对齐关系（2026-09-23 重做启动动画时定的）：
-       · 底：#000（与 .splash 的 background 一致，也和网页端一致）
-       · 图标居中。WebView 里图标是 128px 逻辑像素，原生这边没有对应单位，
-         只能给 dp 近似值；而且这两边**不可能像素级对齐**
-         （原生不跑 JS、拿不到设备宽度、也不知道 dpr）。
-       · 所以设计上让原生这帧**短、且看起来就是「图标已就位」**，
-         WebView 接手时图标从 1.14 缩到 1.00 —— 这点缩放正好把两边的尺寸差吃掉。 -->
+  🔴 2026-09-23 踩的坑：这里**不能**再写 `<bitmap android:src="@mipmap/ic_launcher" />`。
+     因为 from API 26 起 `@mipmap/ic_launcher` 已经解析到
+     `mipmap-anydpi-v26/ic_launcher.xml`（自适应图标 = 一个 XML drawable），
+     而 `<bitmap>` 只接受真正的位图资源 —— 运行时会崩：
+         XmlPullParserException: <bitmap> requires a valid 'src' attribute
+     （表现是「装了新包之后一打开就闪退」，而且 aapt2 编译期完全不报错。）
+     ✅ 正确写法：`<item android:drawable="@mipmap/ic_launcher" />` —— 让它按 drawable 加载，
+        自适应图标会自己按机器蒙版合成。
+     ⚠️ 代价：自适应图标的内容只占 108dp 画布的中间 72dp，所以原生这帧的图标
+        看起来会比 WebView 里那个**小一圈**。这点差异由 .splash-ico 的
+        1.14 → 1.0 缩放吸收（见 style.css 的 splashIco 关键帧）。
+
+  对齐关系：
+    · 底：#000（与 .splash 的 background 一致，也和网页端一致）
+    · 图标居中。原生不跑 JS、拿不到设备宽度和 dpr，**不可能像素级对齐**，
+      只能保证「同一张图、同一个方位」。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/bg" />
-    <item android:gravity="center">
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/ic_launcher" />
-    </item>
+    <item android:gravity="center" android:drawable="@mipmap/ic_launcher" />
 </layer-list>

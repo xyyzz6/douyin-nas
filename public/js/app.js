@@ -2948,6 +2948,18 @@ let splashAt = 0;
   const el = document.getElementById('splash');
   if (!el) { splashDone = true; return; }   // 没有这个节点（老 HTML）就当它不存在
   splashAt = Date.now();
+
+  /* 🔴 立刻通知原生「网页这层启动图已经画出来了」，让原生那张遮罩淡出。
+     必须在**这一句之前**不要有 async —— 原生遮罩多盖一帧，用户就多看到一帧
+     「图标没对齐」的画面。
+     为什么要这么早：原生 `windowBackground` 只撑到 contentView 完成布局，
+     之后到本文件执行之间有一段**纯黑**。原生遮罩就是用来填这段黑的
+     （见 MainActivity.hideNativeSplash 的注释）。
+     ⚠️ 只填黑、不抢戏：它和这里的 .splash 是同一张图，所以交接时看不出接缝。 */
+  try {
+    if (window.NasBridge && NasBridge.splashReady) NasBridge.splashReady();
+  } catch (e) { /* 浏览器里没有这个桥，正常 */ }
+
   window.setTimeout(() => splashReady(), SPLASH_MAX_MS);
 })();
 

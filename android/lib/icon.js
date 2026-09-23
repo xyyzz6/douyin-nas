@@ -132,7 +132,13 @@ const RED  = [0xfe, 0x2c, 0x55];   // var(--brand)
  * @param {number} size 输出边长（px）
  * @param {object} [opt] 可调参数（调试/换风格用）
  */
-function icon(size, opt) {
+/**
+ * 画图标，返回**原始 RGBA**（不编码）—— `icon()` 和 `adaptiveForeground()` 共用。
+ *
+ * 拆出来是必须的：`adaptiveForeground()` 要把画好的像素搬进更大的画布，
+ * 而 `icon()` 返回的是**已编码的 PNG Buffer**（去 `copy()` 它会直接 ERR_OUT_OF_RANGE）。
+ */
+function iconRGBA(size, opt) {
   const o = Object.assign({
     supersample: 4,
     inset: 0.035,        // 圆角块相对画布的内缩
@@ -275,7 +281,57 @@ function icon(size, opt) {
       out[oo + 3] = Math.round((aa / n) * 255);
     }
   }
+  return out;
+}
+
+/**
+ * 画图标，返回编码好的 PNG Buffer（对外的主入口）。
+ * @param {number} size 输出边长（px）
+ * @param {object} [opt] supersample / inset / radius / sheen / glow / bevel
+ */
+function icon(size, opt) {
+  return encode(size, size, iconRGBA(size, opt));
+}
+
+/**
+ * 自适应图标的前景层（Android 8+ 的 adaptive icon）。
+ *
+ * 🔴 为什么必须要它：不提供 `mipmap-anydpi-v26/ic_launcher.xml` 时，
+ *    系统会把 `ic_launcher.png` 当成**普通位图**，再套进一张**白色圆角底板**里
+ *    （2026-09-23 冷启动连拍抓到的第 0 帧就是「白板 + 小图标」——
+ *     和全屏黑底的启动动画完全不是一个画面，切过去像换了个 App）。
+ *
+ * 【尺寸规则】自适应图标的前景/背景都按 **108dp 画布**给，系统只保证
+ *     **中间 72dp 的正方形**可见（外面 18dp 会被各种机器的圆形/方形/水滴形蒙版切掉）。
+ *     所以内容必须画在 108 的中间：`inset = (108-72)/2/108 = 1/6`。
+ *     本工程给的是 1/6 再略收紧一点，因为原来那枚图标自己就带了 0.035 的内缩。
+ *
+ * 【为什么返回整块出血的方形】系统会按机器自己的蒙版形状去裁 —— 我们只管把
+ *     图形居中放好。⚠️ 前景层**不要再画圆角**（蒙版会做），否则会看到「方圆套方圆」。
+ *     所以这里复用的是 `icon()` 的**内容**，但让它铺满 108 画布的中间 72。
+ *
+ * @param {number} size 输出边长（像素），通常 = 108 * (dpi/160)
+ */
+function adaptiveForeground(size) {
+  const SAFE = 72 / 108;              // 中间 72/108 是安全区
+  // 内容按 SAFE 比例缩到画布里居中：先按「内容尺寸」画一张原始 RGBA，
+  // 再把它整体搬进 108 画布的中心。
+  const inner = Math.round(size * SAFE);
+  const art = iconRGBA(inner, { inset: 0.035, radius: 0.245 });
+  const out = Buffer.alloc(size * size * 4);   // 全透明起步
+  const off = Math.round((size - inner) / 2);
+  const rowBytes = inner * 4;
+
+  // 逐行搬（art 是 RGBA，边缘已有抗锯齿 alpha）
+  for (let y = 0; y < inner; y++) {
+    const ty = y + off;
+    if (ty < 0 || ty >= size) continue;
+    art.copy(out, (ty * size + off) * 4, y * rowBytes, (y + 1) * rowBytes);
+  }
   return encode(size, size, out);
 }
 
-module.exports = { encode, icon, sdRoundRect, inTriangle, mix, lerp3, clamp01, smoothstep };
+module.exports = {
+  encode, icon, adaptiveForeground,
+  sdRoundRect, inTriangle, mix, lerp3, clamp01, smoothstep,
+};

@@ -29,6 +29,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -56,10 +57,22 @@ public class MainActivity extends Activity {
     private static final String KEY_URL = "server";
     private static final int LOAD_TIMEOUT_MS = 12000;
 
+    /**
+     * 原生启动遮罩最多盖多久（2026-09-23）。
+     * 正常路径是网页 initSplash() 主动回调 splashReady()；这个只是兜底，
+     * 防止网页没跑起来时遮罩卡住不动（比黑屏更糟）。
+     * 比 LOAD_TIMEOUT_MS 短很多 —— 它不是用来等加载的，只是等 JS 执行到 initSplash。
+     */
+    private static final int NATIVE_SPLASH_MAX_MS = 3000;
+
     private FrameLayout root;
     private View webHolder;
     private WebView web;
     private ProgressBar spin;
+    /** 原生启动遮罩（盖在 WebView 上，等网页 splash 接管后淡出） */
+    private ImageView nativeSplash;
+    /** 遮罩是否已收掉（只收一次；网页可能重复回调） */
+    private boolean nativeSplashGone = false;
     private ScrollView setup;
     private EditText urlInput;
     private EditText userInput;
@@ -115,6 +128,7 @@ public class MainActivity extends Activity {
         webHolder = findViewById(R.id.webHolder);
         web = findViewById(R.id.web);
         spin = findViewById(R.id.spin);
+        nativeSplash = findViewById(R.id.nativeSplash);
         setup = findViewById(R.id.setup);
         urlInput = findViewById(R.id.urlInput);
         userInput = findViewById(R.id.userInput);
@@ -276,6 +290,13 @@ public class MainActivity extends Activity {
             if (!pageLoaded) diagnoseAndShowSetup();
         };
         ui.postDelayed(timeout, LOAD_TIMEOUT_MS);
+
+        /* 原生启动遮罩的**独立**安全网。
+           正常路径是网页 initSplash() 主动回调 splashReady() —— 但如果网页根本没
+           跑起来（JS 报错 / 加载失败 / 老版本 HTML 里没有这个调用），遮罩会一直盖着，
+           用户看到的就是「图标卡住不动」，比黑屏更糟。
+           3 秒足够走完「引擎初始化 + 解析 + 执行 JS」；到点无条件收。 */
+        ui.postDelayed(this::hideNativeSplash, NATIVE_SPLASH_MAX_MS);
     }
 
     /**
@@ -338,9 +359,44 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ------------------------------------------------------------ 原生启动遮罩
+
+    /**
+     * 收掉原生启动遮罩（盖在 WebView 上的那张启动图）。
+     *
+     * 【为什么需要这一层】
+     * `windowBackground` 只在「Activity 还没画出第一帧」时有效。contentView（WebView）
+     * 一完成布局，窗口背景就被顶掉了；而此时 WebView 内部还在做「引擎初始化 → 解析
+     * HTML → 应用 CSS」，网页里那个 `.splash` 节点根本还不存在。于是用户看到的是：
+     *     原生图标 → **纯黑空档** → 网页 splash 动画
+     * 中间那段黑，看起来就像「App 重开了一次 / 动画又放了一遍」。
+     *
+     * 这一层从布局铺好起就一直盖着，直到网页那边明确说「我的 splash 已经接管了」。
+     *
+     * 【谁来调】网页的 splash 初始化完成时通过 NasBridge.splashReady() 回调
+     * （app.js 的 initSplash 里）。**不能**等 onPageFinished —— 那太晚了，
+     * 页面早就在放自己的动画了，会在半路突然闪一下。
+     *
+     * 【安全网】没人调也不能一直盖着：connect() 里挂了 CALLBACK_TIMEOUT 兜底。
+     * 只用一次（`nativeSplashGone` 守住），重复调用无害。
+     */
+    private void hideNativeSplash() {
+        if (nativeSplash == null || nativeSplashGone) return;
+        nativeSplashGone = true;
+        nativeSplash.animate()
+                .alpha(0f)
+                .setDuration(220)                 // 与网页 .splash 的淡入节奏接近
+                .withEndAction(() -> {
+                    // 动画完再摘，避免「啪」地一下消失
+                    if (nativeSplash != null) nativeSplash.setVisibility(View.GONE);
+                })
+                .start();
+    }
+
     // ------------------------------------------------------------ 设置界面
 
     private void showSetup(String err) {
+        hideNativeSplash();              // 设置页不能被启动遮罩盖住
         spin.setVisibility(View.GONE);
         if (err != null && !err.isEmpty()) {
             setupStatus.setText(err + "\n确认手机与群晖在同一网络，地址端口正确");
@@ -499,6 +555,18 @@ public class MainActivity extends Activity {
 
     /** 网页可调用的原生能力。setOrientation 让全屏播放器像抖音那样强制横屏。 */
     private class NasBridge {
+        /**
+         * 网页的启动动画已经接管了画面 → 收掉原生遮罩。
+         *
+         * 网页在 app.js 的 initSplash() 里一进来就调（**不是**等加载完），
+         * 这样「原生这张图」和「网页那张图」是同一个画面连着换，中间不留黑空档。
+         * 重复调用无害（hideNativeSplash 内部只收一次）。
+         */
+        @android.webkit.JavascriptInterface
+        public void splashReady() {
+            ui.post(() -> hideNativeSplash());
+        }
+
         @android.webkit.JavascriptInterface
         public void setOrientation(String mode) {
             final int o;

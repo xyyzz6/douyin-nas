@@ -4184,7 +4184,7 @@ console.log('\n · 图标 + 启动动画');
     && !/inRoundRect/.test(pngSrc),
     'png.js 里如果还留着旧的画法，改一处忘一处就会「图标和启动动画不一样」');
   chk('png.js 仍导出 encode（build.js 的 zip 之外还有人用它编码 PNG）',
-    /module\.exports = \{ encode, icon \}/.test(pngSrc));
+    /module\.exports = \{ encode, icon, adaptiveForeground \}/.test(pngSrc));
 
   /* ② 🔴 图标几何 ↔ SVG 启动图标 必须同源。
         这四处是「图形一致性」的契约，改图形必须两边一起改。 */
@@ -4276,6 +4276,57 @@ console.log('\n · 图标 + 启动动画');
   chk('原生 windowBackground 指向 launch_bg，冷启动先亮图标',
     /android:windowBackground">@drawable\/launch_bg/.test(read('android/res/values/styles.xml'))
     && /@mipmap\/ic_launcher/.test(read('android/res/drawable/launch_bg.xml')));
+
+  /* ⑦b 🔴 自适应图标（API 26+）必须齐三样，且 launch_bg 不许用 <bitmap> 引它。
+        2026-09-23 踩过：加了 mipmap-anydpi-v26/ic_launcher.xml 之后，
+        `@mipmap/ic_launcher` 就解析成**XML drawable**了，而 launch_bg 里还写着
+        `<bitmap android:src="@mipmap/ic_launcher" />` —— 运行时直接崩：
+          XmlPullParserException: <bitmap> requires a valid 'src' attribute
+        表现「一打开就闪退」，且 **aapt2 编译期完全不报错**（只有真跑才炸）。
+        没有自适应图标的话，系统会给图标套一层**白底板**（冷启动第一帧变「白卡」）。 */
+  chk('🔴 有自适应图标定义（否则系统套白底板，冷启动第一帧是「白卡」）',
+    /<adaptive-icon/.test(read('android/res/mipmap-anydpi-v26/ic_launcher.xml'))
+    && /android:drawable="@color\/bg"/.test(read('android/res/mipmap-anydpi-v26/ic_launcher.xml'))
+    && /@mipmap\/ic_launcher_fg/.test(read('android/res/mipmap-anydpi-v26/ic_launcher.xml')));
+  chk('🔴 launch_bg 里不许用 <bitmap> 引用 @mipmap/ic_launcher（会崩）',
+    !/<bitmap[^>]*android:src="@mipmap\/ic_launcher"/.test(
+      read('android/res/drawable/launch_bg.xml').replace(/<!--[\s\S]*?-->/g, '')),
+    '自适应图标是 XML drawable，<bitmap> 只收位图 → 运行时报 requires a valid src');
+  chk('🔴 前景层按 108dp 生成（108 × dpi/160 = 主图标的 108/48 倍）',
+    /ic_launcher_fg\.png'\)?\s*,\s*\n?\s*[^)]*108\s*\/\s*48/.test(read('android/build.js'))
+    || /Math\.round\(size \* 108 \/ 48\)/.test(read('android/build.js')),
+    '前景尺寸不对 → 内容会被系统蒙版切掉或缩得看不见');
+
+  /* ⑦c 🔴 原生启动遮罩：填「windowBackground 被顶掉」到「网页 splash 渲染出来」
+        之间那段黑。漏了这段黑，用户看到的就是「动画放了两遍」。 */
+  {
+    const jMain = read('android/src/com/nas/douyin/MainActivity.java');
+    const lay = read('android/res/layout/activity_main.xml');
+    chk('🔴 布局里有原生启动遮罩（#nativeSplash，盖在 WebView 上）',
+      /id="@\+id\/nativeSplash"/.test(lay) && /@drawable\/native_splash_icon/.test(lay),
+      '没有它 → windowBackground 一被顶掉就是纯黑空档，像动画重放');
+    chk('🔴 网页一进 initSplash 就回调原生收遮罩（不是等 onPageFinished）',
+      /NasBridge\.splashReady\(\)/.test(appCode)
+      && /function initSplash\(\)[\s\S]{0,700}?NasBridge\.splashReady/.test(appCode),
+      '等 onPageFinished 太晚：网页动画已经开跑，遮罩会在半路闪一下');
+    chk('🔴 原生侧暴露 splashReady 桥方法且只收一次',
+      /public void splashReady\(\)/.test(jMain)
+      && /nativeSplashGone/.test(jMain)
+      && /private void hideNativeSplash\(\)/.test(jMain));
+    chk('🔴 遮罩有兜底超时（网页没跑起来时不能卡住不动）',
+      /NATIVE_SPLASH_MAX_MS/.test(jMain)
+      && /postDelayed\(this::hideNativeSplash, NATIVE_SPLASH_MAX_MS\)/.test(jMain),
+      '没有兜底 → JS 报错时启动图永远盖着，比黑屏更糟');
+    chk('🔴 设置页要先把遮罩收掉（否则错误提示被盖住）',
+      /private void showSetup\(String err\) \{\s*\n\s*hideNativeSplash\(\);/.test(jMain));
+    chk('🔴 原生遮罩图用 <bitmap> 引独立位图（不能引自适应图标）',
+      /@mipmap\/splash_icon/.test(read('android/res/drawable/native_splash_icon.xml'))
+      && /splash_icon\.png/.test(read('android/build.js')),
+      '引自适应图标会崩：<bitmap> requires a valid src');
+    chk('🔴 原生遮罩图标与网页 .splash-ico 同为 128dp（交接时不跳大小）',
+      /size \* 128 \/ 48/.test(read('android/build.js'))
+      && /width="128" height="128"/.test(htmlCode));
+  }
   chk('🔴 图标画法不许用「青红直接渐变」填三角（中段必掉饱和度 → 发灰）',
     !/fill="url\(#spBrand\)"/.test(htmlCode)
     && /spTriCyan/.test(htmlCode) && /spTriRed/.test(htmlCode),

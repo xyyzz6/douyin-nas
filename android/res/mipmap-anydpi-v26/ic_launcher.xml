@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标（Android 8+ / API 26+）。
+
+  🔴 为什么必须要有这个文件：没有它时，系统会把 mipmap-*/ic_launcher.png
+     当成**普通位图**再套进一张**白色圆角底板**里。2026-09-23 冷启动连拍
+     抓到的第 0 帧就是「白板 + 小图标」，跟全屏黑底的启动动画完全不是一个画面 ——
+     切过去像换了个 App。有了它，系统就按下面的背景色 + 前景层自己合成蒙版。
+
+  🔴 背景必须是**纯黑**（@color/bg），并且给的是**满幅色块**：
+     自适应图标会按机器的蒙版形状（圆形 / 方形 / 水滴…）去裁，
+     任何圆角都交给系统做，这里画圆角会出现「方圆套方圆」。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/bg" />
+    <foreground android:drawable="@mipmap/ic_launcher_fg" />
+</adaptive-icon>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标的**圆形蒙版**版本（机器把图标裁成圆形时用这个）。
+
+  Android 找图标资源的顺序是：
+    mipmap-anydpi-v26/ic_launcher_round.xml  →  ic_launcher_round.png  →  ic_launcher.xml
+  两个 anydpi 都指向同一套「黑底 + 前景」，形状差异由系统蒙版处理，
+  所以我们这里只是把 ic_launcher 再声明一遍 —— 不写的话部分机器
+  （尤其给「圆形图标」开关的国产 ROM）会回落到老的白底位图。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/bg" />
+    <foreground android:drawable="@mipmap/ic_launcher_fg" />
+</adaptive-icon>

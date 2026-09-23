@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  原生启动遮罩用的图标（见 activity_main.xml 的 @id/nativeSplash）。
+
+  ⚠️ 这里**不能**用 `<bitmap android:src="...">` 去引 `@mipmap/ic_launcher`：
+     自适应图标（mipmap-anydpi-v26）是 XML drawable，`<bitmap>` 只收真位图，
+     运行时直接崩 `requires a valid 'src' attribute`（2026-09-23 踩过，
+     表现是「装完一打开就闪退」）。
+
+  所以这里用 `<bitmap>` 单独引一张**普通位图** `@mipmap/splash_icon` ——
+  它是 build.js 按各 dpi 生成的真 PNG（和 `ic_launcher.png` 同一份画法，
+  但不是任何自适应图标的一部分，所以能安全地被 `<bitmap>` 引用）。
+
+  尺寸：每档取「128dp」对应的像素数 —— 与网页 `.splash-ico` 的
+  `width/height="128"` 对齐，这样原生这层淡出、网页那层淡入时**大小不变**。
+-->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@mipmap/splash_icon"
+    android:gravity="center" />

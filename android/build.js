@@ -49,8 +49,8 @@ const APP = {
   //       想手写一个新基线（比如发 1.4）就自己改这儿，下一轮从 1.4.1 接着涨。
   //    改大版本号时**别改 versionCode 之外的东西**：它是 Android 判断「谁更新」的唯一依据，
   //    只允许单调递增，绝不能因为改 versionName 而变小（否则装机时系统拒装 / 用户降级）。
-  versionCode: 50,
-  versionName: '1.3.47',
+  versionCode: 51,
+  versionName: '1.3.48',
   keystore: path.join(HERE, 'debug.keystore'),
   ksPass: 'android',
   ksAlias: 'androiddebugkey',
@@ -522,6 +522,18 @@ function genResources(defaultUrl) {
     const dir = path.join(GEN_RES, 'mipmap-' + d);
     mkdirp(dir);
     fs.writeFileSync(path.join(dir, 'ic_launcher.png'), png.icon(size));
+    /* 自适应图标的前景层（Android 8+ 走 mipmap-anydpi-v26 那两个 xml）。
+       按 **108dp** 给：108 × (dpi/160)，也就是上面那张的 size × 108/48。 */
+    fs.writeFileSync(path.join(dir, 'ic_launcher_fg.png'),
+      png.adaptiveForeground(Math.round(size * 108 / 48)));
+    /* 原生启动遮罩那张图（drawable/native_splash_icon.xml 引的）。
+       ⚠️ 必须是**普通位图**：`<bitmap>` 不能引自适应图标（XML drawable）。
+       128dp —— 与网页 .splash-ico 的 width/height="128" 对齐，
+       否则原生层淡出、网页层淡入的瞬间会看到图标「跳一下大小」。
+       ⚠️ 这里**不加透明留白**：网页那层图标自带黑底圆角块，
+          原生这层用同一张图铺在同一块黑底上，两侧才能无缝对齐。 */
+    fs.writeFileSync(path.join(dir, 'splash_icon.png'),
+      png.icon(Math.round(size * 128 / 48)));
   }
   ok('默认地址 ' + defaultUrl);
   ok('启动图标 ' + DENSITIES.map(([d]) => d).join(' / '));

@@ -24,6 +24,30 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:indeterminateTint="@color/accent" />
+
+        <!--
+          🔴 原生启动遮罩（2026-09-23）。
+
+          为什么需要它：`windowBackground` 只在「Activity 还没画第一帧」时有效 ——
+          一旦 contentView（WebView）完成布局，窗口背景就被顶掉了。而此时 WebView 内部
+          还在「引擎初始化 → 解析 HTML → 应用 CSS」的过程中，网页里那个 `.splash`
+          节点根本还不存在。于是用户看到的是：
+              原生图标（windowBackground） → **纯黑空档** → 网页 splash 动画
+          中间那段黑就是「看起来像重新开了个 App / 动画又放了一遍」的来源。
+
+          这一层从布局铺好起就一直盖在 WebView 上面，直到网页那边明确说
+          「我的 splash 已经接管了」才淡出（`hideSplash()`）。
+          它画的**就是同一张启动图**，所以整段过程中用户看到的是连续的一个画面。
+        -->
+        <ImageView
+            android:id="@+id/nativeSplash"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:background="@color/bg"
+            android:contentDescription="@null"
+            android:scaleType="centerInside"
+            android:src="@drawable/native_splash_icon" />
     </FrameLayout>
 
     <!-- 服务器地址设置：只在连不上（或用户主动按返回键→服务器设置）时露出来 -->
