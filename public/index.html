@@ -48,6 +48,179 @@
 <div class="stage">
 <div class="phone" id="phone">
 
+  <!-- ================= 启动动画（冷启动首屏） =================
+       原生侧（android/res/drawable/launch_bg.xml + AppTheme 的 windowBackground）
+       会在 WebView 还没画出第一帧时先亮出一枚**静态**图标；这块是它的**接力**：
+       同一枚图标（几何常量与 android/lib/icon.js 完全一致，见 CSS 注释）、
+       同一个纯黑底，所以从原生画面切到 WebView 时**看不出接缝**。
+
+       动效分级（全部走 CSS，零 JS 依赖，JS 只负责到点摘掉它）：
+         1. 图标：从 1.14 缩到 1.00 + 淡入（--ease-spring 的软弹）
+         2. 品牌光环：一圈青→红的锥形渐变，绕中心转的同时扫过一遍
+         3. 光扫：一条斜向白色高光从图标左上游到右下（和图标本体的 sheen 同向）
+         4. 文字：名字 + 一行小字错开淡入上浮
+         5. 整体：由 splashAway() 加 .out 淡出，然后从 DOM 上摘掉
+
+       ⚠️ 三个必须守住的点：
+       · `prefers-reduced-motion: reduce` 下**只保留淡入**（下面有媒体查询）。
+       · 这段**不能**放在 .stage 之外，否则 PC 版的手机外框会漏出来。
+       · 摘除时机由 app.js 的 splashAway() 控制（见那里注释），
+         不要写死 `animation-fill-mode:forwards` + 纯 CSS 自动消失 ——
+         页面加载慢时用户会看到「动画放完了、内容还没来」的空窗。 -->
+  <div class="splash" id="splash" aria-hidden="true">
+    <div class="splash-inner">
+      <div class="splash-mark">
+        <span class="splash-ring"></span>
+        <svg class="splash-ico" viewBox="0 0 512 512" width="128" height="128" aria-hidden="true">
+          <defs>
+            <!-- 底：斜向冷色渐变。
+                 🔴 必须**深**。这是「高端感」的地基 —— 一格调亮就变廉价灰。
+                    参照 raster 版 icon.js：起点 #1b1d27、终点 #06060a。 -->
+            <linearGradient id="spBase" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0"    stop-color="#1b1d27"/>
+              <stop offset="0.55" stop-color="#101018"/>
+              <stop offset="1"    stop-color="#06060a"/>
+            </linearGradient>
+            <!-- 品牌染色：两团**径向**辉光（青左上 / 红右下），指数式衰减。
+                 🔴 `gradientUnits="userSpaceOnUse"` 是必须的：默认的
+                    objectBoundingBox 会把半径按**元素边界**换算，
+                    于是同一个 r=0.6 在小元素上覆盖整个元素、在大元素上只覆盖一小块，
+                    衰减曲线跟着元素尺寸变 —— 完全不可控。
+                    用 userSpaceOnUse + 绝对半径，衰减才和栅格版一致。
+                 半径按「512 空间」给：青 r=170、红 r=180（栅格版是 S 的 0.46 / 0.50 量级）。 -->
+            <radialGradient id="spGlowC" gradientUnits="userSpaceOnUse"
+                            cx="150" cy="140" r="250">
+              <stop offset="0"    stop-color="#25f4ee" stop-opacity="0.62"/>
+              <stop offset="0.30" stop-color="#25f4ee" stop-opacity="0.34"/>
+              <stop offset="0.58" stop-color="#25f4ee" stop-opacity="0.12"/>
+              <stop offset="0.85" stop-color="#25f4ee" stop-opacity="0.02"/>
+              <stop offset="1"    stop-color="#25f4ee" stop-opacity="0"/>
+            </radialGradient>
+            <radialGradient id="spGlowR" gradientUnits="userSpaceOnUse"
+                            cx="368" cy="360" r="240">
+              <stop offset="0"    stop-color="#fe2c55" stop-opacity="0.52"/>
+              <stop offset="0.30" stop-color="#fe2c55" stop-opacity="0.24"/>
+              <stop offset="0.58" stop-color="#fe2c55" stop-opacity="0.07"/>
+              <stop offset="0.85" stop-color="#fe2c55" stop-opacity="0.01"/>
+              <stop offset="1"    stop-color="#fe2c55" stop-opacity="0"/>
+            </radialGradient>
+            <!-- 环境光用的模糊 -->
+            <filter id="spBlur" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="26"/>
+            </filter>
+            <!-- 符号：左右两块纯色。
+                 🔴 **不要**用「青→红渐变」填三角！两色在 RGB 空间插值的中点必然
+                    掉饱和度（得浑浊灰紫），线性光插值又发白 —— 怎么做都脏。
+                    干净的做法是**两块纯色 + 一道窄缝**，让青红各自保持纯度。
+                 渐变只用来做**竖直方向的明暗**（上暗下亮），做出实体棱面感。 -->
+            <linearGradient id="spCyan" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0"    stop-color="#1bc9c4"/>
+              <stop offset="0.30" stop-color="#25f4ee"/>
+              <stop offset="1"    stop-color="#3ef2ec"/>
+            </linearGradient>
+            <linearGradient id="spRed" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0"    stop-color="#d42347"/>
+              <stop offset="0.32" stop-color="#fe2c55"/>
+              <stop offset="1"    stop-color="#ff4168"/>
+            </linearGradient>
+            <!-- 三角的棱面阴影（软过渡，别用纯色块） -->
+            <linearGradient id="spShadeTop" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0"   stop-color="#000" stop-opacity="0.20"/>
+              <stop offset="1"   stop-color="#000" stop-opacity="0"/>
+            </linearGradient>
+            <linearGradient id="spShadeLeft" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0"   stop-color="#fff" stop-opacity="0.26"/>
+              <stop offset="1"   stop-color="#fff" stop-opacity="0"/>
+            </linearGradient>
+            <!-- 光扫用的白带。
+                 🔴 必须是**窄带**：两端 opacity 为 0、中间才有值的宽渐变。
+                    原来写成「0 → 0.45/0.55 平台 → 0」，而矩形又给到 1150×1150
+                    铺满整个图标，结果那条平台把整块底都提亮了（底色从
+                    近黑变成 #4e4e52 那种灰），量化采样一眼就看出来。
+                    现在：平台收窄到 0.46~0.54，且整条带子只画 ~420 宽。 -->
+            <linearGradient id="spSheen" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0"    stop-color="#fff" stop-opacity="0"/>
+              <stop offset="0.40" stop-color="#fff" stop-opacity="0"/>
+              <stop offset="0.48" stop-color="#fff" stop-opacity="0.30"/>
+              <stop offset="0.52" stop-color="#fff" stop-opacity="0.30"/>
+              <stop offset="0.60" stop-color="#fff" stop-opacity="0"/>
+              <stop offset="1"    stop-color="#fff" stop-opacity="0"/>
+            </linearGradient>
+            <clipPath id="spClip">
+              <rect x="17.9" y="17.9" width="476.2" height="476.2" rx="125.4"/>
+            </clipPath>
+            <!-- 🔴 播放三角的形状：左边缘是**竖直线**，右端收成尖点。
+                 顶点（512 视图，换算自 icon.js 的 0.372/0.742/0.283/0.717）：
+                   左上 (190.5, 144.9)  左下 (190.5, 367.1)  尖 (379.9, 256)
+                 青/红两块**都按这个三角形裁**，只是各自再裁一半 —— 这样接缝
+                 天然是三角形内部的一条直线，不会出现「形状对不上」的错位。 -->
+            <clipPath id="spTri">
+              <path d="M190.5 144.9 L379.9 256 L190.5 367.1 Z"/>
+            </clipPath>
+            <!-- 接缝：轻微斜向（和图标里的 slant 一致）。
+                 🔴 用**两条互补的四边形**（共享同一条斜边）来切，而不是
+                    「转一个矩形去裁」—— 后者在旋转后边界会错位，
+                    导致青红两块的公共边出现细缝或重叠。
+                 左块 = 三角形 ∩ 接缝左侧；右块 = 三角形 ∩ 接缝右侧。
+                 接缝中点在 x=280.5（=190.5+0.475×189.4），上下各偏 ±slant。 -->
+            <clipPath id="spTriCyan">
+              <path d="M120 130 L281.9 130 L279.1 382 L120 382 Z"/>
+            </clipPath>
+            <clipPath id="spTriRed">
+              <path d="M281.9 130 L420 130 L420 382 L279.1 382 Z"/>
+            </clipPath>
+          </defs>
+
+          <!-- 圆角底（几何同 icon.js：inset=0.035、radius=0.245 → 512 下即 17.9 / 125.4） -->
+          <rect x="17.9" y="17.9" width="476.2" height="476.2" rx="125.4" fill="url(#spBase)"/>
+          <g clip-path="url(#spClip)">
+            <!-- 品牌染色：两团**径向**辉光（青左上 / 红右下），指数式衰减。
+                 注意用 userSpaceOnUse 关掉默认的 objectBoundingBox ——
+                 后者会把圆撑成椭圆（因为方块是正方形倒还好，
+                 但换个尺寸就会跟着变形，不如按 512 坐标系写死可控）。 -->
+            <rect x="0" y="0" width="512" height="512" fill="url(#spGlowC)"/>
+            <rect x="0" y="0" width="512" height="512" fill="url(#spGlowR)"/>
+            <!-- 符号背后的环境光：让三角「浮」起来。
+                 只留这一处、且压到 0.045 —— 叠两层以上就会把底整体抬亮。 -->
+            <ellipse cx="287" cy="256" rx="140" ry="160"
+                     fill="#fff" opacity="0.045" filter="url(#spBlur)"/>
+            <!-- 顶部内侧受光面：一条内侧的亮边（模拟玻璃/金属的受光棱） -->
+            <rect x="22" y="22" width="468" height="468" rx="122"
+                  fill="none" stroke="#fff" stroke-opacity="0.13" stroke-width="5"/>
+            <!-- 斜向光扫：一条**窄带**从左上游到右下（与图标本体的 sheen 同向）。
+                 尺寸只比图标略大，别铺成一大片 —— 见 #spSheen 里的说明。 -->
+            <rect class="splash-sheen" x="-460" y="-460" width="920" height="920"
+                  fill="url(#spSheen)" opacity="0.85"/>
+          </g>
+          <!-- 播放三角：两半都裁自同一个三角形，只有裁的四边形不同。
+               渐变用竖直方向的 subtle 明暗（上暗下亮），做出实体棱面感。 -->
+          <g clip-path="url(#spTri)">
+            <rect x="150" y="120" width="500" height="280" fill="url(#spCyan)"
+                  clip-path="url(#spTriCyan)"/>
+            <rect x="150" y="120" width="500" height="280" fill="url(#spRed)"
+                  clip-path="url(#spTriRed)"/>
+            <!-- 立体感：上缘一条**软**暗渐变（用渐变而不是纯色块 ——
+                 纯色块会在边缘留一道看得见的硬台阶）+ 左缘一条窄高光 -->
+            <rect x="150" y="120" width="500" height="90" fill="url(#spShadeTop)"/>
+            <rect x="188" y="120" width="6" height="280" fill="url(#spShadeLeft)"/>
+          </g>
+          <!-- 中缝高光：**也裁进三角形里**，否则会在尖角外面露出两条线头 -->
+          <g clip-path="url(#spTri)">
+            <rect class="splash-seam" x="278.9" y="120" width="3.2" height="280"
+                  fill="#fff" opacity="0.42"/>
+          </g>
+          <!-- 内描边 -->
+          <rect x="19.9" y="19.9" width="472.2" height="472.2" rx="123.4"
+                fill="none" stroke="#fff" stroke-opacity="0.26" stroke-width="2.2"/>
+        </svg>
+      </div>
+      <div class="splash-word">
+        <div class="splash-name">NAS 短视频</div>
+        <div class="splash-sub">私人片库 · 随刷随看</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ================= 顶部 ================= -->
   <!-- 顶栏只在首页显示（setNav 里 display:none 掉）。
        ⚠️ 原来这里还有个 ☰ 「菜单」按钮（#btnMenu），但**从来没有绑过任何事件**、

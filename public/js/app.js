@@ -2927,6 +2927,62 @@ function showLoading(on, text) {
   if (text) $('loadingText').textContent = text;
 }
 
+/* ---------------------------- 启动动画（冷启动首屏） ----------------------------
+   为什么不用纯 CSS 自动消失：页面加载慢时用户会看到「动画放完了、内容还没来」
+   的空窗。所以**由内容驱动** —— 首屏真的能显示东西了才摘掉它。
+
+   三层保险（任一触发即收，取最先到的那个）：
+     · 正常路径：`splashReady()` 在首屏有内容/空态可显示时调用
+     · 兜底超时：SPLASH_MAX_MS 到点无条件收（后端卡住时不能拿启动动画当挡箭牌）
+     · 最短停留：SPLASH_MIN_MS 之前不摘（加载极快时动画会被「闪掉」，
+       反而显得劣质 —— 这是「高端感」最容易被忽略的一环）
+
+   ⚠️ 只跑一次：模块级 `splashDone` 标记住。showLoading 会被很多操作反复调用
+      （切目录、登录、清空…），别让它们把启动动画又放一遍。 */
+const SPLASH_MIN_MS = 1500;   // 最短停留（约等于动画主体时长，2026-09-23 用户要求 0.9→1.5s）
+const SPLASH_MAX_MS = 6000;   // 最长停留，到点无条件摘
+let splashDone = false;
+let splashAt = 0;
+
+(function initSplash() {
+  const el = document.getElementById('splash');
+  if (!el) { splashDone = true; return; }   // 没有这个节点（老 HTML）就当它不存在
+  splashAt = Date.now();
+  window.setTimeout(() => splashReady(), SPLASH_MAX_MS);
+})();
+
+/** 收掉启动动画。可重复调用，只有第一次生效。
+ *  @param {boolean} [force] 跳过「最短停留」限制（用户主动跳过时用） */
+function splashAway(force) {
+  if (splashDone) return;
+  const el = document.getElementById('splash');
+  if (!el) { splashDone = true; return; }
+
+  /* 最短停留没到就晚点再来。⚠️ 别用 await 递归自己 ——
+     多次调用会排队出一堆定时器，这里直接排一个就够了。 */
+  const wait = SPLASH_MIN_MS - (Date.now() - splashAt);
+  if (wait > 0 && !force) {
+    if (!el.dataset.pending) {
+      el.dataset.pending = '1';
+      window.setTimeout(() => { delete el.dataset.pending; splashAway(force); }, wait);
+    }
+    return;
+  }
+
+  splashDone = true;
+  el.classList.add('out');
+  /* 等淡出过渡走完再 display:none —— 直接删节点会让合成器来不及过渡，
+     在低端机上看到的就是「啪」地一下没了。
+     420ms 是 CSS 里 .splash 的 transition 时长，改那边记得改这里。 */
+  window.setTimeout(() => { el.classList.add('gone'); }, 460);
+}
+
+/** 首屏已经能显示内容了 → 放行。app.js 里在「首条视频可播」和「空态就绪」
+ *  两处调用（见 loadLibrary 末尾与 feed 的首次 ready）。 */
+function splashReady() {
+  splashAway(false);
+}
+
 /** 当前配置的 WebDAV 地址是否指向**手机内置的 CD2 引擎**（127.0.0.1:19798）。
  *  用途：401 的归因分两种 —— 连远程 NAS 是「账号密码不对」，连本机引擎
  *  绝大多数是「引擎里还没登录 CD2 账号」，两者给的动作完全不同。
@@ -3541,6 +3597,10 @@ function applyLibrary(lib) {
   watchLibraryRefresh(lib);
   // 片库到手后才知道点赞的那些视频在不在当前片源里，所以缩略图补齐放这儿
   backfillThumbs(false);
+  /* 首屏已经有真内容了 → 放掉启动动画。
+     放在最后一行（比 applyFilter 晚）是有意的：等这一轮 DOM 都建完再揭幕，
+     否则会看到「动画刚收掉、列表还在长出来」的中间态。 */
+  if (S.videos.length) splashReady();
 }
 
 /* ---------- 片库缓存过期 / 片源变更时，服务端会在后台重扫；这边等它扫完自动换上新内容 ---------- */
@@ -3733,6 +3793,9 @@ async function loadLibrary(refresh) {
         : `目录 <b>${escapeHtml(S.currentDir || '/')}</b> 下没有能播的视频<br>` +
           '（mp4 / mkv / mov / webm / flv / ts 等都会列出）。<br>' +
           '去 <b>文件夹</b> 页换个目录，或打开「连子文件夹一起扫」。';
+      /* 空态也是「可显示的结果」→ 同样要放掉启动动画。
+         不放的话，没配片源的新用户会一直卡在启动动画上，等满 6 秒兜底超时才进去。 */
+      splashReady();
       return;
     }
   } catch (e) {
@@ -3741,6 +3804,7 @@ async function loadLibrary(refresh) {
     $('emptyView').hidden = false;
     $('emptyTitle').textContent = '读取失败';
     $('emptyDesc').textContent = friendlyNetErr(e.message);
+    splashReady();   // 失败态也要揭幕，别让启动动画盖住错误提示
   }
 }
 

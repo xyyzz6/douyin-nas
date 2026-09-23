@@ -4158,6 +4158,130 @@ console.log('\n · 应用内更新（内置推送）');
     && /releases\/latest/.test(app));
 }
 
+/* ------------------------------------------------------------------
+ * · 图标 + 启动动画（2026-09-23 视觉升级）
+ *
+ * 守什么：
+ *   · 图标画法只在 icon.js 一处，png.js 只做转发（两份实现必然跑偏）
+ *   · 图标几何常量与 HTML 里那个 SVG 启动图标**必须对得上**
+ *     （对不上 = 桌面图标和启动动画不是同一个图形，用户看得出「跳一下」）
+ *   · 启动动画必须真的能收掉（三层保险：内容就绪 / 超时 / 最短停留）
+ *   · 减弱动效的兜底分支不能被删（前庭敏感用户）
+ *   · 启动动画每跑一次只能跑一次（showLoading 会被反复调用）
+ * ------------------------------------------------------------------ */
+console.log('\n · 图标 + 启动动画');
+{
+  const iconSrc = read('android/lib/icon.js');
+  const pngSrc = read('android/lib/png.js');
+
+  /* ① 画法单一来源 */
+  chk('图标几何/配色只写在 lib/icon.js 里',
+    /function icon\(size, opt\)/.test(iconSrc)
+    && /const CYAN = \[0x25, 0xf4, 0xee\]/.test(iconSrc)
+    && /const RED\s+= \[0xfe, 0x2c, 0x55\]/.test(iconSrc));
+  chk('🔴 lib/png.js 的 icon() 只是转发到 icon.js（两份实现必然跑偏）',
+    /require\('\.\/icon\.js'\)\.icon\(size, opt\)/.test(pngSrc)
+    && !/inRoundRect/.test(pngSrc),
+    'png.js 里如果还留着旧的画法，改一处忘一处就会「图标和启动动画不一样」');
+  chk('png.js 仍导出 encode（build.js 的 zip 之外还有人用它编码 PNG）',
+    /module\.exports = \{ encode, icon \}/.test(pngSrc));
+
+  /* ② 🔴 图标几何 ↔ SVG 启动图标 必须同源。
+        这四处是「图形一致性」的契约，改图形必须两边一起改。 */
+  const needGeo = [
+    ['inset 0.035', /inset:\s*0\.035/, /x="17\.9" y="17\.9" width="476\.2"/],
+    ['radius 0.245', /radius:\s*0\.245/, /rx="125\.4"/],
+    ['三角 x 0.372', /tx0 = S \* 0\.372/, /M190\.5 144\.9/],
+    ['三角 x 0.742', /tx1 = S \* 0\.742/, /L379\.9 256/],
+    ['三角 y 0.283', /ty0 = S \* 0\.283/, /144\.9/],
+    ['三角 y 0.717', /ty1 = S \* 0\.717/, /367\.1/],
+  ];
+  needGeo.forEach(([label, reIcon, reHtml]) => {
+    chk(`图标几何「${label}」在 icon.js 与启动 SVG 两处一致`,
+      reIcon.test(iconSrc) && reHtml.test(htmlCode),
+      '不一致 → 桌面图标与启动动画是两个不同图形');
+  });
+
+  /* ③ 启动动画存在 + 三层收尾保险 */
+  chk('HTML 里有启动动画节点（#splash，且在 .phone 内 —— 否则 PC 手机会漏框）',
+    /id="splash"/.test(htmlCode)
+    && /<div class="phone" id="phone">[\s\S]*?id="splash"/.test(htmlCode));
+  chk('CSS 里有 .splash 与淡出态 .out/.gone',
+    /\.splash\{/.test(cssCode) && /\.splash\.out\{/.test(cssCode)
+    && /\.splash\.gone\{/.test(cssCode));
+  chk('🔴 启动动画由 splashAway 收（最短停留 + 最长超时 + 内容就绪三条路）',
+    /SPLASH_MIN_MS\s*=\s*\d+/.test(appCode)
+    && /SPLASH_MAX_MS\s*=\s*\d+/.test(appCode)
+    && /function splashAway\(force\)/.test(appCode)
+    && /function splashReady\(\)/.test(appCode));
+  chk('🔴 最长超时真的挂了定时器（后端卡住时不能拿启动动画当挡箭牌）',
+    /setTimeout\(\(\) => splashReady\(\), SPLASH_MAX_MS\)/.test(appCode));
+  chk('🔴 只跑一次（showLoading 会被切目录/登录/清空反复调用）',
+    /let splashDone = false/.test(appCode)
+    && /if \(splashDone\) return;/.test(appCode));
+
+  /* ③b 🔴 动画时间轴必须填满最短停留。
+        2026-09-23 用户要求最短停留 0.9s → 1.5s：只改 JS 常量的话，动画会在
+        1.35s 前就全部跑完，然后**静止 0.15s 才淡出** —— 看着像卡了一下，
+        比动画短一点更糟。所以断言「最长的那条动画 + 它的 delay ≥ 最短停留」。 */
+  {
+    const dur = (sel) => {
+      const m = cssCode.match(new RegExp('\\.' + sel + '\\{[^}]*animation:[^;]*?([\\d.]+)s[^;]*?([\\d.]+)s'));
+      return m ? parseFloat(m[1]) + parseFloat(m[2]) : -1;
+    };
+    const minMs = parseFloat((appCode.match(/SPLASH_MIN_MS\s*=\s*(\d+)/) || [])[1] || '0');
+    const stages = [['splash-ico', dur('splash-ico')], ['splash-ring', dur('splash-ring')],
+                    ['splash-sheen', dur('splash-sheen')], ['splash-name', dur('splash-name')]];
+    const longest = Math.max(...stages.map(s => s[1]));
+    chk('🔴 启动动画时间轴填满最短停留（最长动画 + delay ≥ SPLASH_MIN_MS）',
+      longest > 0 && longest * 1000 >= minMs,
+      `最长动画 ${longest}s（${stages.map(s => s[0] + '=' + s[1]).join(', ')}）`
+      + ` < 最短停留 ${minMs}ms → 尾部静止再淡出，像卡了一下`);
+  }
+
+  /* ④ 内容就绪时必须放行 —— 漏一处就会卡满 6 秒 */
+  {
+    const n = (appCode.match(/splashReady\(\)/g) || []).length;
+    chk('🔴 首屏就绪的每条路径都调了 splashReady（有内容 / 空态 / 读取失败）',
+      /backfillThumbs\(false\);[\s\S]{0,300}splashReady\(\)/.test(appCode)
+      && n >= 3,
+      '只调一两处的话，没配片源的新用户会一直卡在启动动画上等超时。实际调用 ' + n + ' 处');
+  }
+
+  /* ⑤ 减弱动效兜底（前庭敏感用户；系统里开这个的人不少） */
+  chk('🔴 保留 prefers-reduced-motion 兜底（只淡入，不做位移/缩放/旋转）',
+    /@media \(prefers-reduced-motion: reduce\)/.test(cssCode)
+    && /\.splash-ico\{animation:splashFade/.test(cssCode)
+    && /\.splash-ring\{display:none;\}/.test(cssCode));
+
+  /* ⑥ 🔴 光扫不能铺成一大片 —— 这是被量化采样抓出来的坑：
+        1150×1150 的矩形 + 0.55 平台，把近黑底整体抬成 #4e4e52 的灰。 */
+  chk('🔴 光扫带两端 opacity 必须为 0（否则整块底被抬亮，图标变灰塑料）',
+    /id="spSheen"[\s\S]{0,400}?stop-opacity="0"[\s\S]{0,120}?stop-opacity="0\.30"/.test(htmlCode)
+    && /splash-sheen" x="-460"/.test(htmlCode));
+
+  /* ⑦ 🔴 底色必须深。栅格版四角是近黑；SVG 版一旦被染成灰粉就「廉价」了。
+        这条是量化对比（canvas 采样）之后才补的断言，肉眼当时没看出来。 */
+  chk('🔴 底色渐变足够深（终点是近黑，不许整块抬起）',
+    /id="spBase"[\s\S]{0,300}?stop-color="#06060a"/.test(htmlCode));
+  chk('🔴 品牌辉光用径向 + userSpaceOnUse（objectBoundingBox 会让衰减随尺寸变）',
+    /radialGradient id="spGlowC" gradientUnits="userSpaceOnUse"/.test(htmlCode)
+    && /radialGradient id="spGlowR" gradientUnits="userSpaceOnUse"/.test(htmlCode));
+
+  /* ⑧ 🔴 中缝高光必须裁进三角形里 —— 不裁会在尖角外露出两条线头 */
+  chk('🔴 中缝高光被裁在三角内部（否则尖角外露线头）',
+    /<g clip-path="url\(#spTri\)">[\s\S]{0,200}?class="splash-seam"/.test(htmlCode));
+
+  /* ⑨ 原生冷启动画面存在（WebView 首帧之前不能一片纯黑） */
+  chk('原生 windowBackground 指向 launch_bg，冷启动先亮图标',
+    /android:windowBackground">@drawable\/launch_bg/.test(read('android/res/values/styles.xml'))
+    && /@mipmap\/ic_launcher/.test(read('android/res/drawable/launch_bg.xml')));
+  chk('🔴 图标画法不许用「青红直接渐变」填三角（中段必掉饱和度 → 发灰）',
+    !/fill="url\(#spBrand\)"/.test(htmlCode)
+    && /spTriCyan/.test(htmlCode) && /spTriRed/.test(htmlCode),
+    '两色线性插值的中点是浑浊灰紫；正确做法是两块纯色 + 一道窄缝');
+}
+
 /* ④ 🔴 系统栏：网页改不了安卓状态栏颜色，只能由原生改 ——
       漏了的话浅色界面顶上永远留一条黑边，看着像没换干净 */
 {

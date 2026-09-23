@@ -740,6 +740,112 @@ svg{display:block;}
 }
 .toast.show{opacity:1;transform:translate(-50%,0);}
 
+/* ---------------------- 启动动画（冷启动首屏） ----------------------
+   和原生侧 launch_bg.xml 接力：同样的纯黑底 + 同一枚图标，切过来看不出接缝。
+
+   🔴 几何常量必须和 android/lib/icon.js 对齐（512 视图下的换算）：
+        inset 0.035 → 17.9   radius 0.245 → 125.4
+        三角 x 0.372~0.742 → 190.5~379.9   y 0.283~0.717 → 144.9~367.1
+        中缝 0.475 → ≈280.5（下边微斜，见 SVG 里两条 path 的直边）
+      改图标形状时**这四处要一起改**，否则启动动画和桌面图标不是同一个图形。
+
+   层级：z-index 比 .loading(20) 高，因为它是「更早、更靠前」的一层，
+   淡出后 .loading 才露出来（顺序：原生静态图 → 启动动画 → 转圈 → 内容）。 */
+.splash{
+  position:absolute;inset:0;z-index:30;background:#000;
+  display:flex;align-items:center;justify-content:center;
+  /* 淡出用 opacity + visibility，避免摘除瞬间的闪跳 */
+  transition:opacity .42s var(--ease-soft),visibility .42s var(--ease-soft);
+}
+.splash.out{opacity:0;visibility:hidden;}
+/* 已经放完（或用户跳过）后彻底不接收事件、不参与合成 */
+.splash.gone{display:none;}
+
+.splash-inner{
+  display:flex;flex-direction:column;align-items:center;
+  /* 整体略微上移 —— 视觉重心比几何中心高一点更舒服 */
+  margin-top:-6%;
+}
+
+/* ---- 图标 ---- */
+.splash-mark{position:relative;display:flex;align-items:center;justify-content:center;}
+.splash-ico{
+  position:relative;z-index:2;display:block;
+  /* filter 做出「悬浮」的投影，让图标离黑底有一点距离感 */
+  filter:drop-shadow(0 18px 34px rgba(0,0,0,.55)) drop-shadow(0 0 26px rgba(254,44,85,.16));
+  animation:splashIco 1.35s var(--ease-spring) both;
+}
+@keyframes splashIco{
+  0%{opacity:0;transform:scale(1.14);}
+  55%{opacity:1;}
+  100%{opacity:1;transform:scale(1);}
+}
+
+/* 品牌光环：一圈青→红的锥形渐变，绕中心旋转 + 从外向内收拢 */
+.splash-ring{
+  position:absolute;z-index:1;
+  width:184px;height:184px;border-radius:50%;
+  background:conic-gradient(from 0deg,
+    rgba(37,244,238,.0) 0deg,
+    rgba(37,244,238,.55) 58deg,
+    rgba(216,154,192,.30) 160deg,
+    rgba(254,44,85,.55) 250deg,
+    rgba(254,44,85,.0) 360deg);
+  /* 用 mask 挖空中间，只留一圈细环（比 border 更容易做渐变模糊） */
+  -webkit-mask:radial-gradient(circle, transparent 0 56%, #000 60% 76%, transparent 82%);
+          mask:radial-gradient(circle, transparent 0 56%, #000 60% 76%, transparent 82%);
+  filter:blur(3px);
+  opacity:0;
+  animation:splashRing 1.9s var(--ease-soft) .1s both;
+}
+@keyframes splashRing{
+  0%{opacity:0;transform:scale(.72) rotate(0deg);}
+  30%{opacity:.95;}
+  70%{opacity:.55;}
+  100%{opacity:0;transform:scale(1.24) rotate(140deg);}
+}
+
+/* 光扫：斜向白带从左上扫到右下（与图标本体 sheen 同向） */
+.splash-sheen{animation:splashSheen 1.65s var(--ease-soft) .28s both;}
+@keyframes splashSheen{
+  0%{transform:translate(-360px,-360px);}
+  100%{transform:translate(420px,420px);}
+}
+/* 中缝高光：晚一点亮起、闪一下（对应图标里那道「玻璃拼接」折射线） */
+.splash-seam{animation:splashSeam 1.5s var(--ease-soft) .5s both;}
+@keyframes splashSeam{
+  0%{opacity:0;}
+  40%{opacity:.75;}
+  100%{opacity:.35;}
+}
+
+/* ---- 文字 ---- */
+.splash-word{text-align:center;margin-top:26px;}
+.splash-name{
+  font-size:19px;font-weight:700;letter-spacing:.14em;
+  color:#fff;
+  animation:splashWord 1.05s var(--ease-soft) .34s both;
+}
+.splash-sub{
+  margin-top:9px;font-size:11.5px;letter-spacing:.22em;
+  color:rgba(255,255,255,.40);
+  animation:splashWord 1.05s var(--ease-soft) .46s both;
+}
+@keyframes splashWord{
+  0%{opacity:0;transform:translateY(9px);}
+  100%{opacity:1;transform:translateY(0);}
+}
+
+/* 🔴 降低动效偏好：只留淡入，去掉位移/缩放/旋转（前庭敏感用户会不适）。
+   这条必须保留 —— 系统里开了「减弱动态效果」的用户占比不低。 */
+@media (prefers-reduced-motion: reduce){
+  .splash-ico{animation:splashFade .3s ease both;}
+  .splash-ring{display:none;}
+  .splash-sheen,.splash-seam{animation:none;opacity:.35;}
+  .splash-name,.splash-sub{animation:splashFade .3s ease both;}
+  @keyframes splashFade{from{opacity:0;}to{opacity:1;}}
+}
+
 /* ---------------------- 加载 / 空态 ---------------------- */
 .loading{
   position:absolute;inset:0;z-index:20;background:#000;
