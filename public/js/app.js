@@ -584,6 +584,23 @@ const seekSettle = new Map();
   }
 
   /**
+   * 预热出来的邻条加载失败：**静默丢弃**，等它真成为当前条时由 activate → mount 重新挂一路干净的。
+   *
+   * 🔴 为什么是「丢弃」而不是「就地重建」：重建会立刻再发一次加载，失败又 error、又重建……
+   *    一次预热 5 条时就是 5 个死循环。
+   *   也不能不管：挂着一条 error 的 video，用户划过去时 mount() 会因 `mounted.has(i)` 直接
+   *   返回它，而 error 不会自己重发 → 卡一块黑屏、连报错界面都没有。
+   *   （只删不重建 → mounted.has(i) 为假 → activate 时 mount 会重新挂。）
+   */
+  function dropBrokenPreheat(i, v) {
+    if (mounted.get(i) !== v) return;          // 已经被换过 / 已经清掉，别重复动
+    cleanupVideo(v);
+    mounted.delete(i);
+    const it = itemOf(i);
+    if (it) it.classList.remove('ready', 'stalling', 'paused');
+  }
+
+  /**
    * 视频出错先自救，实在救不回来才给用户报错：
    * 1) 直连流出错（坏码流、云盘挂载抖动最容易中途炸）→ 有 ffmpeg 就切重编码流，
    *    没 ffmpeg（APK）就先原地重试一次 —— 假重编码流治不了任何问题；
@@ -591,6 +608,19 @@ const seekSettle = new Map();
    * 3) 还不行 → 才弹「播不出来」。
    */
   function onVideoError(i, v, item) {
+    /* 🔴 只有「当前正在看的那条」出错，才配得上提示 / 重试 / 跳过 / 升级原生。
+     *
+     * activate() 会预热 i+1..i+5（见那里的 mount(...,false)），**预热出来的邻条也会加载
+     * 真实流、也会 error** —— 一次预热 5 条，NAS / 云盘并发扛不住时几乎必然有邻条失败。
+     * 这里原来没有 `cur === i` 守卫，邻条的失败会**冒充当前这条的失败**，走 APK 那段
+     * `NATIVE_SKIP[p]=1 → toast('这部片解码不了，已自动跳过') → main.scrollBy(1)`，
+     * 把用户正在看、而且播得好好的这条顶走。
+     * 用户看到的就是「明明已经开播了，却说解码不了」；又因为每次预热一批，
+     * 表现像「很多 mp4 都解不了」（2026-09-23 报的真身）。
+     *
+     * ⚠️ 和上面 `waiting` / `stalled` 同一条规矩：这种「只该对当前条生效」的监听
+     *    都必须带 `cur === i`，别改回去。 */
+    if (cur !== i) { dropBrokenPreheat(i, v); return; }
     if (item.dataset.mode !== 'transcode' && list[i].playable !== false) {
       if (S.ffmpeg) {                       // 只有真能重编码时才值得切
         badStreamSet(list[i].p);
@@ -3979,6 +4009,15 @@ $('cfStrmClear')?.addEventListener('click', async () => {
  *     服务端保留墓碑并按时间戳判胜负（见 syncMergeMap）。
  */
 const SYNC_LS = 'sync';
+
+/* 🔒 内置的默认同步服务器地址（2026-09-23 用户要求：「不用每次都手输」）。
+   本机没存过地址时（首装 / 清过数据 / 退出登录后）自动带出来填进「账号与同步」表单；
+   用户仍可在那里改成别的 —— 这里只是**回退值**，存过的地址永远优先（见下面的 SY.load），
+   不会把用户改过的地址冲掉。App 和网页版共用这一份 app.js，所以两边都会带上。
+   ⚠️ 这是本机私用地址：**推到公开仓库前必须脱敏**（规则已加进 _tmp/scrub.js），
+      否则等于把自家服务器地址公开。别人自建时把这一行改成自己的地址即可。 */
+const SYNC_URL_DEFAULT = 'http://192.168.1.100:8099';
+
 const SY = {
   url: '', user: '', token: '', auto: true, lastAt: 0, snap: null, busy: false,
   /* 自动备份 strm 的防重入标志。**故意跟 busy 分开** —— busy 是「点赞收藏同步」的锁，
@@ -3992,7 +4031,9 @@ const SY = {
   strmRev: -1,
   load() {
     const o = LS.get(SYNC_LS, null) || {};
-    SY.url = String(o.url || '').replace(/\/+$/, '');
+    /* 空 → 用内置默认地址兜底；用户存过的地址（含「改回空」其实不存在，
+       因为空会被这里补成默认）优先。 */
+    SY.url = String(o.url || SYNC_URL_DEFAULT).replace(/\/+$/, '');
     SY.user = String(o.user || '');
     SY.token = String(o.token || '');
     SY.auto = o.auto !== false;

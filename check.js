@@ -1056,6 +1056,12 @@ chk('清理在同步服务器名单之前（顺序反了刚同步的就被清掉
     const j = app.indexOf('badStreamMarkLocal(p));');
     return i > 0 && j > i;
   })());
+/* 2026-09-23：内置默认同步服务器地址（用户要求「不用每次都手输」）。
+   判据：常量存在，且 SY.load 用「存过的地址 || 内置默认」回退 ——
+   不能直接写死覆盖，否则用户改成自己的地址会在重启后被冲回默认。 */
+chk('内置默认同步服务器地址：SY.url 为空时回退，且不覆盖用户存过的',
+  /const SYNC_URL_DEFAULT = 'https?:\/\//.test(app)
+  && /SY\.url = String\(o\.url \|\| SYNC_URL_DEFAULT\)/.test(app));
 chk('onVideoError 在无 ffmpeg 时不再切假重编码', /if \(S\.ffmpeg\) \{ {2,}?\/\/ 只有真能重编码时才值得切/.test(app));
 
 /* 🔴 2026-09-20：彻底修掉「跳过无法播放的视频还是闪一下横屏」。
@@ -1071,6 +1077,42 @@ chk('onVideoError 在无 ffmpeg 时不再切假重编码', /if \(S\.ffmpeg\) \{ 
     && /else if \(NAV === 'home'\)/.test(seg));
   chk('🔴 原生播放器只在该全屏播放器场景下才打开（由 playerModal 未隐藏守卫）',
     /if \(!\$\('playerModal'\)\.hidden\) \{[\s\S]{0,500}?window\.NasBridge\.openPlayer/.test(seg));
+  /* 🔴 2026-09-23：用户报「很多 mp4 明明在播却说解码不了」。
+     根因：onVideoError 缺 `cur === i` 守卫 —— activate 预热的邻条(i+1..i+5)失败时会
+     冒充当前条，弹「解码不了」+ main.scrollBy(1) 把正在播的这条顶走。钉住守卫别被删。 */
+  chk('🔴 onVideoError 只对当前条生效（预热邻条的失败不许弹窗 / 跳下一条）',
+    /if \(cur !== i\) \{ dropBrokenPreheat\(i, v\); return; \}/.test(seg)
+    && /function dropBrokenPreheat\(i, v\) \{/.test(app));
+}
+
+/* 🔴 2026-09-23 行为验证：把 onVideoError 抽出来打桩跑，钉住「只对当前条生效」。
+   （没有 NAS 也能验：i≠cur 时函数在守卫处就返回，只会碰到 cur / dropBrokenPreheat 两个引用，
+     其余的 S.ffmpeg / list / toast 等根本不会执行 —— 所以打桩量很小。） */
+{
+  const i = app.indexOf('function onVideoError(');
+  const j = app.indexOf('function showErr(');
+  const src = app.slice(i, j > i ? j : i + 6000);
+  const BIG = new Array(10).fill(0).map((_, k) => ({ p: '/v' + k + '.mp4', name: 'v' + k, playable: true }));
+  const run = (curVal, errIdx) => {
+    const calls = { toast: [], scroll: [], skip: {}, dropped: [] };
+    const fn = new Function('cur', 'dropBrokenPreheat', 'toast', 'main', 'NAV', 'NATIVE_SKIP',
+      '$', 'S', 'list', 'PAGE_BOOT_TS', 'setTimeout',
+      'return (' + src + ');')(
+      curVal, (k) => calls.dropped.push(k), (m) => calls.toast.push(m),
+      { scrollBy: (d) => calls.scroll.push(d) }, 'home', calls.skip,
+      () => ({ hidden: true }), { ffmpeg: false }, BIG, Date.now(), () => {});
+    const item = { dataset: {}, classList: { add() {}, remove() {} } };
+    fn(errIdx, {}, item);
+    return { calls, item };
+  };
+  const off = run(7, 3);      // 正在看第 7 条，第 3 条（预热邻条）报错
+  chk('🔴 行为：i≠cur 报错 → 只静默丢弃，绝不 toast / scrollBy / 记 NATIVE_SKIP（否则顶走正在播的）',
+    off.calls.dropped.length === 1 && off.calls.dropped[0] === 3
+    && off.calls.toast.length === 0 && off.calls.scroll.length === 0
+    && Object.keys(off.calls.skip).length === 0);
+  const on = run(3, 3);       // 报错的正是当前条
+  chk('行为：i===cur 报错 → 不被守卫误伤，照旧走「原地重试」自救',
+    on.calls.dropped.length === 0 && on.item.dataset.errRetry === '1');
 }
 
 console.log('\n · 原生播放器（PlayerActivity —— Media3 内核 + Xplayer 自绘控制层）');
